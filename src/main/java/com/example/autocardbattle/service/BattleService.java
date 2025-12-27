@@ -1,7 +1,7 @@
-package service;
+package com.example.autocardbattle.service;
 
-import model.Skill;
-import model.Monster;
+import com.example.autocardbattle.model.Skill;
+import com.example.autocardbattle.model.Monster;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
