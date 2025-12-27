@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Chain Battle - Chain Setup</title>
+    <style>
+        body {
+            background: #111;
+            color: #eee;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .box {
+            border: 1px solid #444;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        button {
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Chain Battle</h1>
+
+<!-- 보유 스킬 -->
+<div class="box">
+    <h2>보유 스킬</h2>
+    <ul id="skill-list"></ul>
+</div>
+
+<!-- 체인 -->
+<div class="box">
+    <h2>스킬 체인</h2>
+    <ol id="chain-list"></ol>
+</div>
+
+<script>
+/* =====================
+   데이터 (임시)
+===================== */
+
+const ownedSkills = [
+    { name: "강화", cooldown: 10 },
+    { name: "출혈", cooldown: 4 },
+    { name: "약공", cooldown: 1 },
+    { name: "폭발", cooldown: 6 }
+];
+
+let chain = [];
+
+/* =====================
+   렌더링
+===================== */
+
+function renderSkills() {
+    const ul = document.getElementById("skill-list");
+    ul.innerHTML = "";
+
+    ownedSkills.forEach(skill => {
+        const li = document.createElement("li");
+        li.textContent = `${skill.name} (쿨 ${skill.cooldown}s)`;
+
+        const btn = document.createElement("button");
+        btn.textContent = "체인에 추가";
+        btn.onclick = () => {
+            chain.push(skill.name);
+            renderChain();
+        };
+
+        li.appendChild(btn);
+        ul.appendChild(li);
+    });
+}
+
+function renderChain() {
+    const ol = document.getElementById("chain-list");
+    ol.innerHTML = "";
+
+    chain.forEach((skillName, index) => {
+        const li = document.createElement("li");
+        li.textContent = skillName;
+
+        // 위로
+        const up = document.createElement("button");
+        up.textContent = "↑";
+        up.onclick = () => {
+            if (index === 0) return;
+            [chain[index - 1], chain[index]] = [chain[index], chain[index - 1]];
+            renderChain();
+        };
+
+        // 아래로
+        const down = document.createElement("button");
+        down.textContent = "↓";
+        down.onclick = () => {
+            if (index === chain.length - 1) return;
+            [chain[index + 1], chain[index]] = [chain[index], chain[index + 1]];
+            renderChain();
+        };
+
+        // 제거
+        const remove = document.createElement("button");
+        remove.textContent = "X";
+        remove.onclick = () => {
+            chain.splice(index, 1);
+            renderChain();
+        };
+
+        li.appendChild(up);
+        li.appendChild(down);
+        li.appendChild(remove);
+        ol.appendChild(li);
+    });
+}
+
+/* =====================
+   초기 실행
+===================== */
+
+renderSkills();
+renderChain();
+</script>
+
+</body>
+</html>
