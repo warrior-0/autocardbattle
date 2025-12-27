@@ -2,34 +2,37 @@ package com.example.autocardbattle.model;
 
 public class Skill {
     private String name;
-    private int cooldown;
+    private float cooldown; // float 가능
     private int chainOrder;
 
-    private int nextReadyTime;
-    private int readySinceTime;
+    private float nextReadyTime;
+    private float readySinceTime; // READY 상태가 된 시점
 
-    public Skill(String name, int cooldown, int chainOrder) {
+    public Skill(String name, float cooldown, int chainOrder) {
         this.name = name;
         this.cooldown = cooldown;
         this.chainOrder = chainOrder;
-        this.nextReadyTime = 0;
+        this.nextReadyTime = cooldown;
         this.readySinceTime = -1;
     }
 
-    public boolean isReady(int currentTime) {
+    public boolean isReady(float currentTime) {
         if (currentTime >= nextReadyTime) {
-            if (readySinceTime == -1) readySinceTime = currentTime;
+            if (readySinceTime == -1) {
+                readySinceTime = currentTime;
+            }
             return true;
         }
         return false;
     }
 
-    public void use(int currentTime) {
+    public void use(float currentTime) {
         nextReadyTime = currentTime + cooldown;
         readySinceTime = -1;
     }
 
-    // Getter
+    // Getter & Setter
     public String getName() { return name; }
+    public float getReadySinceTime() { return readySinceTime; }
     public int getChainOrder() { return chainOrder; }
 }
