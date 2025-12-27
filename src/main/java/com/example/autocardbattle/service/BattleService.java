@@ -9,53 +9,50 @@ import java.util.*;
 @Service
 public class BattleService {
 
-    // 배틀 실행
-    public List<String> executeBattle(String userId, int duration, List<Skill> skills, Monster monster) {
-        List<String> battleLog = new ArrayList<>();
+    // 유저마다 독립적인 스킬/몬스터 객체 생성 가능
+    public String simulateBattle(String userId, int duration) {
+        StringBuilder log = new StringBuilder();
+        int time = 0;
 
-        // READY 큐를 우선순위 큐로 관리
-        PriorityQueue<Skill> readyQueue = new PriorityQueue<>(
-                (a, b) -> {
-                    if (a.getReadySinceTime() != b.getReadySinceTime()) {
-                        return Integer.compare(a.getReadySinceTime(), b.getReadySinceTime());
-                    }
-                    return Integer.compare(a.getChainOrder(), b.getChainOrder());
-                }
-        );
+        List<Skill> skills = new ArrayList<>();
+        skills.add(new Skill("강화", 10, 0));
+        skills.add(new Skill("출혈", 4, 1));
+        skills.add(new Skill("약공", 1, 2));
+        skills.add(new Skill("폭발", 6, 3));
+        skills.add(new Skill("회피", 3, 4));
 
-        for (int time = 1; time <= duration; time++) {
+        List<Monster> monsters = new ArrayList<>();
+        monsters.add(new Monster("슬라임", 50, List.of(skills.get(1), skills.get(2))));
+        monsters.add(new Monster("고블린", 80, List.of(skills.get(3), skills.get(4))));
 
-            // 1️⃣ READY 후보 수집
-            readyQueue.clear();
+        while (time < duration) {
+            List<Skill> readySkills = new ArrayList<>();
             for (Skill s : skills) {
-                if (s.isReady(time)) {
-                    readyQueue.add(s);
-                }
+                if (s.isReady(time)) readySkills.add(s);
             }
 
-            // 로그: READY BEFORE
-            battleLog.add("t=" + time + " READY BEFORE: " + (readyQueue.isEmpty() ? "-" :
-                    String.join(" ", readyQueue.stream().map(Skill::getName).toList())));
+            // READY 시간 우선, 체인 순서 보조
+            readySkills.sort(Comparator.comparing(Skill::getReadySinceTime)
+                    .thenComparing(Skill::getChainOrder));
 
-            if (!readyQueue.isEmpty()) {
-                // 2️⃣ 사용할 스킬 선택 (우선순위 큐 기준)
-                Skill selected = readyQueue.poll();
+            if (!readySkills.isEmpty()) {
+                Skill selected = readySkills.get(0);
                 selected.use(time);
+                log.append(String.format("[t=%.1f] %s 발동!\n", time, selected.getName()));
 
-                battleLog.add("  ▶ USE: " + selected.getName());
-            }
-
-            // 3️⃣ READY AFTER
-            List<String> readyAfterList = new ArrayList<>();
-            for (Skill s : skills) {
-                if (s.isReady(time)) {
-                    readyAfterList.add(s.getName());
+                // 몬스터 데미지 적용 (단순 예시)
+                for (Monster m : monsters) {
+                    if (m.isAlive()) {
+                        m.takeDamage(5);
+                        log.append(String.format("  → %s 데미지 5, 남은 HP: %d\n", m.getName(), m.getHp()));
+                        break;
+                    }
                 }
             }
-            battleLog.add("  READY AFTER: " + (readyAfterList.isEmpty() ? "-" :
-                    String.join(" ", readyAfterList)));
+
+            time += 1; // 1초 단위
         }
 
-        return battleLog;
+        return log.toString();
     }
 }
