@@ -8,12 +8,12 @@ import java.util.Map;
 @CrossOrigin(origins = "https://warrior-0.github.io")
 public class FirebaseConfigController {
 
-    @Value("${FIREBASE_API_KEY:}") private String apiKey;
-    @Value("${FIREBASE_AUTH_DOMAIN:}") private String authDomain;
-    @Value("${FIREBASE_PROJECT_ID:}") private String projectId;
-    @Value("${FIREBASE_STORAGE_BUCKET:}") private String storageBucket;
-    @Value("${FIREBASE_SENDER_ID:}") private String messagingSenderId;
-    @Value("${FIREBASE_APP_ID:}") private String appId;
+    @Value("${FIREBASE_API_KEY_PLACEHOLDER:}") private String apiKey;
+    @Value("${FIREBASE_AUTH_DOMAIN_PLACEHOLDER:}") private String authDomain;
+    @Value("${FIREBASE_PROJECT_ID_PLACEHOLDER:}") private String projectId;
+    @Value("${FIREBASE_STORAGE_BUCKET_PLACEHOLDER:}") private String storageBucket;
+    @Value("${FIREBASE_SENDER_ID_PLACEHOLDER:}") private String messagingSenderId;
+    @Value("${FIREBASE_APP_ID_PLACEHOLDER:}") private String appId;
 
     @GetMapping("/firebase")
     public Map<String, String> getFirebaseConfig() {
