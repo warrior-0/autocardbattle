@@ -188,30 +188,63 @@
                 document.getElementById('disp-gold').innerText = user.gold;
             } catch(e) { console.error("유저 로드 실패", e); }
         }
-
+        
+        // 체인 및 인벤토리 로드 함수
         async function loadChainAndInventory() {
             if(!currentUid) return;
-            const invRes = await fetch(`${API_BASE_URL}/api/chain/inventory?uid=${currentUid}`);
-            const inventory = await invRes.json();
-            const chainRes = await fetch(`${API_BASE_URL}/api/chain/list?uid=${currentUid}`);
-            const chain = await chainRes.json();
-
-            document.getElementById('inventory-list').innerHTML = inventory.map(item => `
-                <div class="card">
-                    <h3>${item.skillName}</h3>
-                    <p>보유수: ${item.quantity}</p>
-                    <button class="action-btn" onclick="equipSkill('${item.skillName}')">장착하기</button>
-                </div>
-            `).join('');
-
-            document.getElementById('chain-list').innerHTML = chain.map(c => `
-                <div class="card" style="border-color: #007bff;">
-                    <h3>[${c.chainOrder}] ${c.skillName}</h3>
-                    <p>⚡ ${c.cooldown}s | ⚔️ ${c.effectValue}</p>
-                </div>
-            `).join('');
+            try {
+                const [invRes, chainRes] = await Promise.all([
+                    fetch(`${API_BASE_URL}/api/chain/inventory?uid=${currentUid}`),
+                    fetch(`${API_BASE_URL}/api/chain/list?uid=${currentUid}`)
+                ]);
+        
+                const inventory = invRes.ok ? await invRes.json() : [];
+                const chain = chainRes.ok ? await chainRes.json() : [];
+        
+                // [수정] 인벤토리: 장착하기 버튼 제거, 보유 수만 표시
+                document.getElementById('inventory-list').innerHTML = inventory.length > 0 
+                    ? inventory.map(item => `
+                        <div class="card" style="cursor: pointer;" onclick="equipSkill('${item.skillName}')" title="클릭하면 체인에 추가됩니다">
+                            <h3>${item.skillName}</h3>
+                            <p>보유수: ${item.quantity}개</p>
+                            <small style="color:#007bff">클릭하여 장착</small>
+                        </div>`).join('')
+                    : "<p>보유한 스킬이 없습니다.</p>";
+        
+                // [수정] 체인 리스트: 해제 버튼 추가
+                document.getElementById('chain-list').innerHTML = chain.length > 0
+                    ? chain.map(c => `
+                        <div class="card" style="border-color: #007bff;">
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="font-weight:bold; color:#007bff;">#${c.chainOrder + 1}</span>
+                                <button onclick="unequipSkill(${c.id})" style="border:none; background:none; color:red; cursor:pointer;">✖</button>
+                            </div>
+                            <h3>${c.skillName}</h3>
+                            <p>⚡ ${c.cooldown}s | ⚔️ ${c.effectValue}</p>
+                        </div>`).join('')
+                    : "<p>장착된 스킬이 없습니다. 인벤토리의 스킬을 클릭하세요.</p>";
+        
+            } catch (e) {
+                console.error("데이터 로드 오류:", e);
+            }
         }
-
+        
+        // [추가] 스킬 해제 함수 (체인에서 삭제)
+        window.unequipSkill = async (chainId) => {
+            if(!confirm("이 스킬을 체인에서 제거하시겠습니까?")) return;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/chain/unequip?id=${chainId}`, {
+                    method: 'DELETE'
+                });
+                if(res.ok) {
+                    loadChainAndInventory(); // 목록 새로고침
+                } else {
+                    alert("해제 실패!");
+                }
+            } catch(e) {
+                console.error("해제 중 오류:", e);
+            }
+        };
         window.equipSkill = async (skillName) => {
             const res = await fetch(`${API_BASE_URL}/api/chain/equip`, {
                 method: 'POST',
