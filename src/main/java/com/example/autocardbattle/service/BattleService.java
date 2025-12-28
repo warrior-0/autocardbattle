@@ -28,13 +28,9 @@ public class BattleService {
         Monster monster = MonsterFactory.createMonster(monsterType);
 
         // 1. 체인 무제한 데이터를 가져옴 (Order순 정렬)
-        List<SkillChainEntity> chain = chainRepository.findByFirebaseUidOrderByChainOrderAsc(uid);
+        List<SkillChai용
+        skills.forEach(s -> s.setNextAvailableTime(s.getCooldown()));
         
-        // 2. 전투용 Skill 객체로 변환
-        List<Skill> skills = chain.stream()
-                .map(e -> new Skill(e.getSkillName(), e.getCooldown(), e.getChainOrder(), e.getEffectType(), e.getEffectValue()))
-                .collect(Collectors.toList());
-
         List<String> logs = new ArrayList<>();
         int playerHp = user.getMaxHp();
         int monsterHp = monster.getHp();
@@ -45,7 +41,6 @@ public class BattleService {
 
         // 3. 전투 루프 (체인이 길어질 것을 대비해 500틱으로 연장)
         while (time < 500 && playerHp > 0 && monsterHp > 0) {
-            time++;
             final int currentTime = time;
             
             // [유저 턴] READY 우선순위 큐 로직
