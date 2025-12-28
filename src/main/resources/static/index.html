@@ -193,35 +193,75 @@
 
         // --- ⚔️ 전투 실행 (연출 강화) ---
         window.startBattle = async (type) => {
-            const logDiv = document.getElementById('battle-log');
-            const btns = [document.getElementById('btn-dummy'), document.getElementById('btn-infinite')];
+        const logDiv = document.getElementById('battle-log');
+        const btns = [document.getElementById('btn-dummy'), document.getElementById('btn-infinite')];
+        
+        btns.forEach(b => b.disabled = true);
+        logDiv.innerHTML = "⚔️ <strong>전투를 준비 중입니다...</strong>";
+    
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/battle/start?uid=${currentUid}&monsterType=${type}`);
+            const data = await res.json();
             
-            btns.forEach(b => b.disabled = true);
-            logDiv.innerHTML = "📡 서버로부터 데이터를 받는 중...";
-
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/battle/start?uid=${currentUid}&monsterType=${type}`);
-                const data = await res.json();
-                
-                logDiv.innerHTML = "";
-                let i = 0;
-                const interval = setInterval(() => {
-                    if (i < data.logs.length) {
-                        logDiv.innerHTML += `> ${data.logs[i]}<br>`;
-                        logDiv.scrollTop = logDiv.scrollHeight;
-                        i++;
-                    } else {
-                        clearInterval(interval);
-                        logDiv.innerHTML += `<br><strong>[결과: ${data.result}]</strong><br>`;
-                        btns.forEach(b => b.disabled = false);
-                        loadUserData();
-                    }
-                }, 1000); // 1초 간격 연출
-            } catch(e) {
-                logDiv.innerHTML = "❌ 오류 발생: 서버 연결을 확인하세요.";
-                btns.forEach(b => b.disabled = false);
-            }
-        };
+            logDiv.innerHTML = "⚔️ <strong>전투 시작!</strong><br><br>";
+    
+            // 1. 로그를 틱(Time) 단위로 그룹화
+            // 예: { "T1": ["로그1", "로그2"], "T2": ["로그3"] }
+            const groupedLogs = {};
+            const otherLogs = []; // [T] 표시가 없는 시작/종료 메시지용
+    
+            data.logs.forEach(log => {
+                const match = log.match(/\[T(\d+)\]/); // [T1], [T2] 패턴 찾기
+                if (match) {
+                    const tick = match[0]; // "[T1]"
+                    if (!groupedLogs[tick]) groupedLogs[tick] = [];
+                    groupedLogs[tick].push(log);
+                } else {
+                    otherLogs.push(log);
+                }
+            });
+    
+            // 2. 틱 번호 순서대로 정렬된 리스트 생성
+            const ticks = Object.keys(groupedLogs).sort((a, b) => {
+                return parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, ''));
+            });
+    
+            // 3. 시작 로그 출력 (전투 시작! 등)
+            const startMessages = otherLogs.filter(msg => !msg.includes("승리") && !msg.includes("패배"));
+            startMessages.forEach(msg => logDiv.innerHTML += `> ${msg}<br>`);
+    
+            let tickIdx = 0;
+            const interval = setInterval(() => {
+                if (tickIdx < ticks.length) {
+                    const currentTick = ticks[tickIdx];
+                    const tickLogs = groupedLogs[currentTick];
+    
+                    // 해당 틱에 발생한 모든 로그를 한꺼번에 출력
+                    tickLogs.forEach(msg => {
+                        logDiv.innerHTML += `> ${msg}<br>`;
+                    });
+                    
+                    logDiv.scrollTop = logDiv.scrollHeight;
+                    tickIdx++;
+                } else {
+                    // 모든 틱 출력 후 종료 로그 (승리/패배 등) 출력
+                    clearInterval(interval);
+                    const endMessages = otherLogs.filter(msg => msg.includes("승리") || msg.includes("패배") || msg.includes("무승부"));
+                    endMessages.forEach(msg => logDiv.innerHTML += `<br><strong>${msg}</strong><br>`);
+                    
+                    const color = data.result === "WIN" ? "#28a745" : "#dc3545";
+                    logDiv.innerHTML += `<br><strong style="color:${color}; font-size:1.2em;">[최종 결과: ${data.result}]</strong><br>`;
+                    
+                    btns.forEach(b => b.disabled = false);
+                    loadUserData();
+                }
+            }, 1000); // 정확히 1초마다 1틱분량 출력
+        } catch(e) {
+            console.error(e);
+            logDiv.innerHTML = "❌ 서버 연결 오류가 발생했습니다.";
+            btns.forEach(b => b.disabled = false);
+        }
+    };
     </script>
 </body>
 </html>
