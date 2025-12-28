@@ -65,6 +65,7 @@ function renderSkills() {
         const btn = document.createElement("button");
         btn.textContent = "체인에 추가";
         btn.onclick = () => {
+            if (chain.includes(skill.name)) return;
             chain.push(skill.name);
             renderChain();
         };
