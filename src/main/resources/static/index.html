@@ -5,29 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto Card Battle</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background-color: #f4f4f4; }
+        body { font-family: 'Pretendard', sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background-color: #f4f4f4; line-height: 1.6; }
         .view { display: none; }
         .active { display: block; }
-        nav { margin-bottom: 20px; background: #333; padding: 10px; border-radius: 5px; }
-        nav button { margin-right: 10px; padding: 8px 15px; cursor: pointer; background: #555; color: white; border: none; border-radius: 3px; }
+        nav { margin-bottom: 20px; background: #333; padding: 10px; border-radius: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+        nav button { padding: 8px 15px; cursor: pointer; background: #555; color: white; border: none; border-radius: 5px; transition: 0.3s; }
         nav button:hover { background: #777; }
-        .card { border: 1px solid #ccc; padding: 15px; margin: 5px; display: inline-block; background: white; border-radius: 5px; width: 180px; vertical-align: top; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
-        .log-box { background: #fff; padding: 10px; height: 300px; overflow-y: scroll; border: 1px solid #ccc; margin-top: 10px; font-family: monospace; }
-        .stat-box { background: #e8f4ff; padding: 15px; border-radius: 5px; margin-bottom: 15px; }
-        button.action-btn { background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-top: 5px;}
+        .card { border: 1px solid #ccc; padding: 15px; margin: 5px; display: inline-block; background: white; border-radius: 8px; width: 180px; vertical-align: top; box-shadow: 2px 2px 8px rgba(0,0,0,0.1); }
+        .log-box { background: #1e1e1e; color: #00ff00; padding: 15px; height: 350px; overflow-y: auto; border-radius: 8px; margin-top: 10px; font-family: 'Courier New', monospace; border: 2px solid #444; }
+        .stat-box { background: #e8f4ff; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #b3d7ff; }
+        button.action-btn { background-color: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; margin-top: 5px; font-weight: bold; }
+        button.action-btn:disabled { background-color: #ccc; cursor: not-allowed; }
         .hidden { display: none; }
+        h1, h2 { color: #333; }
     </style>
 </head>
 <body>
 
     <div id="auth-view" class="view active">
         <h1>⚔️ Auto Card Battle</h1>
-        <div style="background:white; padding: 20px; border-radius: 5px;">
-            <input type="email" id="email" placeholder="이메일" style="padding:10px; width:200px;">
-            <input type="password" id="password" placeholder="비밀번호" style="padding:10px; width:200px;">
-            <br><br>
-            <input type="text" id="username" placeholder="닉네임 (가입시에만 입력)" style="padding:10px; width:200px;">
-            <br><br>
+        <div style="background:white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+            <h3>로그인 / 회원가입</h3>
+            <input type="email" id="email" placeholder="이메일" style="padding:12px; width:250px; margin-bottom:10px; border-radius:5px; border:1px solid #ddd;"><br>
+            <input type="password" id="password" placeholder="비밀번호" style="padding:12px; width:250px; margin-bottom:10px; border-radius:5px; border:1px solid #ddd;"><br>
+            <input type="text" id="username" placeholder="닉네임 (가입 시 필수)" style="padding:12px; width:250px; margin-bottom:15px; border-radius:5px; border:1px solid #ddd;"><br>
             <button class="action-btn" onclick="handleLogin()">로그인</button>
             <button class="action-btn" style="background-color:#28a745" onclick="handleSignup()">회원가입</button>
         </div>
@@ -39,112 +40,111 @@
             <button onclick="showView('dungeon-view')">⚔️ 던전</button>
             <button onclick="showView('inventory-view')">🎒 인벤토리</button>
             <button onclick="showView('chain-view')">🔗 스킬 체인</button>
-            <button onclick="logout()" style="float:right; background:#d9534f">로그아웃</button>
+            <button onclick="logout()" style="margin-left:auto; background:#d9534f">로그아웃</button>
         </nav>
 
-        <div id="user-view" class="view active">
-            <h2>내 정보</h2>
+        <div id="user-view" class="view">
+            <h2>내 프로필</h2>
             <div class="stat-box">
-                <p><strong>닉네임:</strong> <span id="disp-name"></span></p>
-                <p><strong>레벨:</strong> <span id="disp-lvl"></span></p>
-                <p><strong>HP:</strong> <span id="disp-hp"></span></p>
-                <p><strong>EXP:</strong> <span id="disp-exp"></span></p>
-                <p><strong>골드:</strong> <span id="disp-gold"></span></p>
+                <p><strong>닉네임:</strong> <span id="disp-name">-</span></p>
+                <p><strong>레벨:</strong> <span id="disp-lvl">1</span></p>
+                <p><strong>HP:</strong> <span id="disp-hp">100</span></p>
+                <p><strong>EXP:</strong> <span id="disp-exp">0</span></p>
+                <p><strong>골드:</strong> <span id="disp-gold">0</span></p>
             </div>
         </div>
 
         <div id="dungeon-view" class="view">
             <h2>던전 선택</h2>
-            <button class="action-btn" onclick="startBattle('DUMMY')">허수아비 (연습)</button>
-            <button class="action-btn" style="background:#dc3545" onclick="startBattle('INFINITE')">무한의 허수아비</button>
+            <button class="action-btn" id="btn-dummy" onclick="startBattle('DUMMY')">훈련용 허수아비</button>
+            <button class="action-btn" id="btn-infinite" style="background:#dc3545" onclick="startBattle('INFINITE')">무한의 허수아비</button>
             <h3>전투 로그</h3>
-            <div id="battle-log" class="log-box">전투를 시작하면 로그가 표시됩니다.</div>
+            <div id="battle-log" class="log-box">대기 중...</div>
         </div>
 
         <div id="inventory-view" class="view">
-            <h2>보유 스킬 목록</h2>
-            <p>보유한 스킬 카드입니다. 체인 메뉴에서 장착하세요.</p>
+            <h2>🎒 보유 스킬</h2>
             <div id="inventory-list"></div>
         </div>
 
         <div id="chain-view" class="view">
-            <h2>스킬 체인 설정</h2>
-            <p>전투 시 순서대로 발동되는 스킬입니다. (0번부터 시작)</p>
-            <button class="action-btn" onclick="resetChain()">체인 초기화 (전체 해제)</button>
-            <div id="chain-list" style="margin-top:10px;"></div>
+            <h2>🔗 스킬 체인 설정</h2>
+            <button class="action-btn" style="background:#6c757d" onclick="resetChain()">체인 초기화</button>
+            <div id="chain-list" style="margin-top:15px;"></div>
         </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
+        // --- 설정 ---
+        const API_BASE_URL = "https://autocardbattle.onrender.com"; // 본인의 실제 Render 주소
         const firebaseConfig = {
             apiKey: "FIREBASE_API_KEY_PLACEHOLDER",
             authDomain: "FIREBASE_AUTH_DOMAIN_PLACEHOLDER",
             projectId: "FIREBASE_PROJECT_ID_PLACEHOLDER",
             storageBucket: "FIREBASE_STORAGE_BUCKET_PLACEHOLDER",
             messagingSenderId: "FIREBASE_SENDER_ID_PLACEHOLDER",
-            appId: "FIREBASE_APP_ID_PLACEHOLDER",
-            measurementId: "FIREBASE_MEASUREMENT_ID_PLACEHOLDER"
+            appId: "FIREBASE_APP_ID_PLACEHOLDER"
         };
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         let currentUid = null;
 
-        // --- Auth Functions ---
+        // --- 페이지 로드 시 로그인 상태 체크 ---
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUid = user.uid;
+                loadUserData();
+                document.getElementById('auth-view').classList.remove('active');
+                document.getElementById('game-container').classList.remove('hidden');
+                showView('user-view');
+            }
+        });
+
+        // --- 회원가입 ---
         window.handleSignup = async () => {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             const username = document.getElementById('username').value;
-            if(!username) return alert("가입 시 닉네임은 필수입니다.");
+            if(!username) return alert("닉네임을 입력해주세요.");
 
             try {
                 const cred = await createUserWithEmailAndPassword(auth, email, password);
-                const uid = cred.user.uid;
-                // 서버 DB 등록
-                const res = await fetch('/api/user/signup', {
+                const res = await fetch(`${API_BASE_URL}/api/user/signup`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ uid, username })
+                    body: JSON.stringify({ uid: cred.user.uid, username })
                 });
-                if(res.ok) alert("가입 성공! 로그인 해주세요.");
-                else {
-                    const err = await res.text();
-                    alert("오류: " + err);
-                }
-            } catch(e) { alert(e.message); }
+                if(res.ok) alert("가입 성공! 로그인 하세요.");
+            } catch(e) { alert("가입 실패: " + e.message); }
         };
 
+        // --- 로그인 ---
         window.handleLogin = async () => {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             try {
-                const cred = await signInWithEmailAndPassword(auth, email, password);
-                currentUid = cred.user.uid;
-                await loadUserData();
-                document.getElementById('auth-view').classList.remove('active');
-                document.getElementById('game-container').classList.remove('hidden');
+                await signInWithEmailAndPassword(auth, email, password);
             } catch(e) { alert("로그인 실패: " + e.message); }
         };
 
-        window.logout = () => {
-            signOut(auth).then(() => location.reload());
-        };
+        window.logout = () => { signOut(auth).then(() => location.reload()); };
 
-        // --- Game Logic ---
+        // --- 뷰 전환 ---
         window.showView = (id) => {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             if(id === 'inventory-view' || id === 'chain-view') loadChainAndInventory();
         };
 
+        // --- 데이터 로딩 ---
         async function loadUserData() {
             if(!currentUid) return;
-            const res = await fetch(`/api/user/login?uid=${currentUid}`);
+            const res = await fetch(`${API_BASE_URL}/api/user/login?uid=${currentUid}`);
             const user = await res.json();
-            
             document.getElementById('disp-name').innerText = user.username;
             document.getElementById('disp-lvl').innerText = user.level;
             document.getElementById('disp-hp').innerText = user.maxHp;
@@ -153,63 +153,74 @@
         }
 
         async function loadChainAndInventory() {
-            // 인벤토리 조회
-            const invRes = await fetch(`/api/chain/inventory?uid=${currentUid}`);
+            const invRes = await fetch(`${API_BASE_URL}/api/chain/inventory?uid=${currentUid}`);
             const inventory = await invRes.json();
-            
-            // 체인 조회
-            const chainRes = await fetch(`/api/chain/list?uid=${currentUid}`);
+            const chainRes = await fetch(`${API_BASE_URL}/api/chain/list?uid=${currentUid}`);
             const chain = await chainRes.json();
 
-            // 인벤토리 렌더링
-            const invDiv = document.getElementById('inventory-list');
-            invDiv.innerHTML = inventory.map(item => `
+            document.getElementById('inventory-list').innerHTML = inventory.map(item => `
                 <div class="card">
                     <h3>${item.skillName}</h3>
-                    <p>수량: ${item.quantity}</p>
-                    <button class="action-btn" onclick="equipSkill('${item.skillName}')">체인에 추가</button>
+                    <p>보유수: ${item.quantity}</p>
+                    <button class="action-btn" onclick="equipSkill('${item.skillName}')">장착하기</button>
                 </div>
             `).join('');
 
-            // 체인 렌더링
-            const chainDiv = document.getElementById('chain-list');
-            chainDiv.innerHTML = chain.map(c => `
+            document.getElementById('chain-list').innerHTML = chain.map(c => `
                 <div class="card" style="border-color: #007bff;">
                     <h3>[${c.chainOrder}] ${c.skillName}</h3>
-                    <p>쿨타임: ${c.cooldown}s</p>
-                    <p>효과: ${c.effectType} ${c.effectValue}</p>
+                    <p>⚡ ${c.cooldown}s | ⚔️ ${c.effectValue}</p>
                 </div>
             `).join('');
         }
 
+        // --- 체인 관리 ---
         window.equipSkill = async (skillName) => {
-            const res = await fetch(`/api/chain/equip`, {
+            const res = await fetch(`${API_BASE_URL}/api/chain/equip`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ uid: currentUid, skillName: skillName })
+                body: JSON.stringify({ uid: currentUid, skillName })
             });
-            if(res.ok) {
-                alert("장착 완료!");
-                loadChainAndInventory();
-            } else {
-                alert("장착 실패 (최대 개수 초과 등)");
-            }
+            if(res.ok) { loadChainAndInventory(); }
+            else { alert("장착 실패!"); }
         };
 
         window.resetChain = async () => {
-            if(!confirm("체인을 초기화 하시겠습니까?")) return;
-            await fetch(`/api/chain/reset?uid=${currentUid}`, { method: 'POST' });
+            if(!confirm("체인을 비우시겠습니까?")) return;
+            await fetch(`${API_BASE_URL}/api/chain/reset?uid=${currentUid}`, { method: 'POST' });
             loadChainAndInventory();
         };
 
+        // --- ⚔️ 전투 실행 (연출 강화) ---
         window.startBattle = async (type) => {
-            document.getElementById('battle-log').innerText = "전투 계산 중...";
-            const res = await fetch(`/api/battle/start?uid=${currentUid}&monsterType=${type}`);
-            const data = await res.json();
-            
             const logDiv = document.getElementById('battle-log');
-            logDiv.innerHTML = `<h4>결과: ${data.result}</h4>` + data.logs.join('<br>');
-            loadUserData(); // 전투 후 보상 반영 확인
+            const btns = [document.getElementById('btn-dummy'), document.getElementById('btn-infinite')];
+            
+            btns.forEach(b => b.disabled = true);
+            logDiv.innerHTML = "📡 서버로부터 데이터를 받는 중...";
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/battle/start?uid=${currentUid}&monsterType=${type}`);
+                const data = await res.json();
+                
+                logDiv.innerHTML = "";
+                let i = 0;
+                const interval = setInterval(() => {
+                    if (i < data.logs.length) {
+                        logDiv.innerHTML += `> ${data.logs[i]}<br>`;
+                        logDiv.scrollTop = logDiv.scrollHeight;
+                        i++;
+                    } else {
+                        clearInterval(interval);
+                        logDiv.innerHTML += `<br><strong>[결과: ${data.result}]</strong><br>`;
+                        btns.forEach(b => b.disabled = false);
+                        loadUserData();
+                    }
+                }, 200); // 0.2초 간격 연출
+            } catch(e) {
+                logDiv.innerHTML = "❌ 오류 발생: 서버 연결을 확인하세요.";
+                btns.forEach(b => b.disabled = false);
+            }
         };
     </script>
 </body>
