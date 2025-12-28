@@ -1,8 +1,8 @@
 package com.example.autocardbattle.entity;
 
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-import javax.persistence.*;
 
 @Entity
 @Table(name = "skill_master")
