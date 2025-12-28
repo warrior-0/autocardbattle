@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto Card Battle</title>
     <style>
-        /* 기존 스타일 유지 */
         body { font-family: 'Pretendard', sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background-color: #f4f4f4; line-height: 1.6; }
         .view { display: none; }
         .active { display: block; }
@@ -80,43 +79,45 @@
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
         // --- 1. 설정 및 글로벌 변수 ---
-        const API_BASE_URL = "https://autocardbattle.onrender.com"; // 실제 Render 주소로 유지
+        const API_BASE_URL = "https://autocardbattle.onrender.com";
         let auth = null;
         let currentUid = null;
+        let isSigningUp = false; // 가입 중 자동 이동 방지 플래그
 
-        // --- 2. 초기화 함수 (서버에서 키 가져오기) ---
+        // --- 2. 초기화 함수 ---
         async function initGame() {
             try {
-                // 백엔드 API로부터 Firebase 설정값 가져오기
                 const configRes = await fetch(`${API_BASE_URL}/api/config/firebase`);
                 if (!configRes.ok) throw new Error("설정 데이터를 가져오지 못했습니다.");
                 
                 const firebaseConfig = await configRes.json();
-                
-                // 받아온 값으로 Firebase 초기화
                 const app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
 
-                // 초기화 완료 후 인증 리스너 등록
                 onAuthStateChanged(auth, (user) => {
-                    if (user) {
+                    // 가입 절차 중이 아닐 때만 유저 감지 시 자동 로그인 처리
+                    if (user && !isSigningUp) {
                         currentUid = user.uid;
                         loadUserData();
-                        document.getElementById('auth-view').classList.remove('active');
-                        document.getElementById('game-container').classList.remove('hidden');
-                        showView('user-view');
+                        enterGameUI();
                     }
                 });
             } catch (error) {
                 console.error("초기화 에러:", error);
-                alert("서버 연결에 실패했습니다. (CORS 또는 Render 서버 상태 확인)");
+                alert("서버 연결에 실패했습니다.");
             }
         }
 
-        // 실행
         initGame();
 
-        // --- 3. 회원가입/로그인 함수 (전역 바인딩) ---
+        // 게임 화면으로 UI 전환하는 함수
+        function enterGameUI() {
+            document.getElementById('auth-view').classList.remove('active');
+            document.getElementById('game-container').classList.remove('hidden');
+            showView('user-view');
+        }
+
+        // --- 3. 회원가입/로그인 함수 ---
         window.handleSignup = async () => {
             if (!auth) return alert("Firebase 초기화 중입니다...");
             const email = document.getElementById('email').value;
@@ -124,15 +125,36 @@
             const username = document.getElementById('username').value;
             if(!username) return alert("닉네임을 입력해주세요.");
 
+            isSigningUp = true; // 가입 시작점
+
             try {
+                // 1. Firebase Auth 계정 생성
                 const cred = await createUserWithEmailAndPassword(auth, email, password);
+                
+                // 2. 백엔드 서버에 유저 및 기본 스킬 저장
                 const res = await fetch(`${API_BASE_URL}/api/user/signup`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ uid: cred.user.uid, username })
+                    body: JSON.stringify({ 
+                        firebaseUid: cred.user.uid, // 서버 엔티티 필드명에 맞춤
+                        username: username 
+                    })
                 });
-                if(res.ok) alert("가입 성공! 이제 로그인 하세요.");
-            } catch(e) { alert("가입 실패: " + e.message); }
+
+                if(res.ok) {
+                    alert("가입 성공! 확인을 누르면 게임을 시작합니다.");
+                    isSigningUp = false; // 플래그 해제
+                    currentUid = cred.user.uid;
+                    loadUserData();
+                    enterGameUI();
+                } else {
+                    const errData = await res.json();
+                    throw new Error(errData.message || "서버 저장 실패");
+                }
+            } catch(e) { 
+                isSigningUp = false; 
+                alert("가입 실패: " + e.message); 
+            }
         };
 
         window.handleLogin = async () => {
@@ -146,7 +168,7 @@
 
         window.logout = () => { signOut(auth).then(() => location.reload()); };
 
-        // --- 4. 게임 로직 함수들 (window 객체에 바인딩하여 HTML에서 호출 가능하게 함) ---
+        // --- 4. 게임 로직 함수들 ---
         window.showView = (id) => {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(id).classList.add('active');
@@ -155,16 +177,20 @@
 
         async function loadUserData() {
             if(!currentUid) return;
-            const res = await fetch(`${API_BASE_URL}/api/user/login?uid=${currentUid}`);
-            const user = await res.json();
-            document.getElementById('disp-name').innerText = user.username;
-            document.getElementById('disp-lvl').innerText = user.level;
-            document.getElementById('disp-hp').innerText = user.maxHp;
-            document.getElementById('disp-exp').innerText = user.exp;
-            document.getElementById('disp-gold').innerText = user.gold;
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/user/login?uid=${currentUid}`);
+                if(!res.ok) return;
+                const user = await res.json();
+                document.getElementById('disp-name').innerText = user.username;
+                document.getElementById('disp-lvl').innerText = user.level;
+                document.getElementById('disp-hp').innerText = user.maxHp;
+                document.getElementById('disp-exp').innerText = user.exp;
+                document.getElementById('disp-gold').innerText = user.gold;
+            } catch(e) { console.error("유저 로드 실패", e); }
         }
 
         async function loadChainAndInventory() {
+            if(!currentUid) return;
             const invRes = await fetch(`${API_BASE_URL}/api/chain/inventory?uid=${currentUid}`);
             const inventory = await invRes.json();
             const chainRes = await fetch(`${API_BASE_URL}/api/chain/list?uid=${currentUid}`);
