@@ -19,8 +19,12 @@ public class Skill {
         this.order = order; this.type = type; this.value = value;
     }
 
-    public void setNextAvailableTime(int cooldown) {
-        this.nextAvailableTime = cooldown;
+    public void setNextAvailableTime(int nextAvailableTime) {
+        this.nextAvailableTime = nextAvailableTime;   
+    }
+
+    public int getNextAvailableTime() {
+        return nextAvailableTime;
     }
 
     public boolean isReady(int currentTime) {
