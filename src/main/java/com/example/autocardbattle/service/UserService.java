@@ -15,27 +15,21 @@ public class UserService {
 
     @Transactional
     public UserEntity createUser(String uid, String username) {
+        // 1. 중복 닉네임 체크
         if (userRepository.existsByUsername(username)) {
             throw new RuntimeException("이미 존재하는 닉네임입니다.");
         }
+
+        // 2. 유저 생성 및 저장
         UserEntity user = new UserEntity();
         user.setFirebaseUid(uid);
         user.setUsername(username);
         userRepository.save(user);
 
-        // 기본 스킬 3개 지급 (약공)
-        InventoryEntity basicSkill = new InventoryEntity();
-        basicSkill.setFirebaseUid(uid);
-        basicSkill.setSkillName("기본 펀치");
-        basicSkill.setQuantity(3);
-        inventoryRepository.save(basicSkill);
+        // 3. 신규 가입 보상: [평타] 스킬 1개 지급
+        InventoryEntity defaultSkill = new InventoryEntity(uid, "평타");
         
-        // 힐 스킬 1개 지급
-        InventoryEntity healSkill = new InventoryEntity();
-        healSkill.setFirebaseUid(uid);
-        healSkill.setSkillName("응급 처치");
-        healSkill.setQuantity(1);
-        inventoryRepository.save(healSkill);
+        inventoryRepository.save(defaultSkill);
 
         return user;
     }
