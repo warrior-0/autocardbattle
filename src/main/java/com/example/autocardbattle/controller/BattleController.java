@@ -1,21 +1,16 @@
 package com.example.autocardbattle.controller;
-
+import com.example.autocardbattle.model.BattleResult;
 import com.example.autocardbattle.service.BattleService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
+@RequestMapping("/api/battle")
 public class BattleController {
+    @Autowired private BattleService battleService;
 
-    private final BattleService battleService;
-
-    public BattleController(BattleService battleService) {
-        this.battleService = battleService;
-    }
-
-    @GetMapping("/battle")
-    public String battle(@RequestParam String userId, @RequestParam(defaultValue = "30") int duration) {
-        return battleService.simulateBattle(userId, duration);
+    @GetMapping("/start")
+    public BattleResult start(@RequestParam String uid, @RequestParam String monsterType) {
+        return battleService.startBattle(uid, monsterType);
     }
 }
