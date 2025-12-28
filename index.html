@@ -201,60 +201,70 @@
                 const inventory = invRes.ok ? await invRes.json() : [];
                 const chain = chainRes.ok ? await chainRes.json() : [];
         
-                // [수정] 인벤토리: 장착하기 버튼 제거, 보유 수만 표시
-                document.getElementById('inventory-list').innerHTML = inventory.length > 0 
-                    ? inventory.map(item => `
-                        <div class="card" style="cursor: pointer;" onclick="equipSkill('${item.skillName}')" title="클릭하면 체인에 추가됩니다">
-                            <h3>${item.skillName}</h3>
-                            <p>보유수: ${item.quantity}개</p>
-                            <small style="color:#007bff">클릭하여 장착</small>
-                        </div>`).join('')
-                    : "<p>보유한 스킬이 없습니다.</p>";
+                // 1. 체인 리스트 (현재 장착된 스킬들)
+                document.getElementById('chain-list').innerHTML = `
+                    <div style="margin-bottom: 20px; padding: 15px; background: #fff; border-radius: 8px; border: 1px solid #ddd;">
+                        <h4>현재 장착된 체인 (클릭 시 해제)</h4>
+                        <div id="active-chain" style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px;">
+                            ${chain.length > 0 ? chain.map(c => `
+                                <div class="card" style="border-color: #007bff; width: 140px; cursor: pointer; flex-shrink: 0;" onclick="unequipSkill(${c.id})">
+                                    <span style="font-size: 0.8em; color: #007bff; font-weight: bold;">#${c.chainOrder + 1}</span>
+                                    <h3 style="font-size: 1em;">${c.skillName}</h3>
+                                    <p style="font-size: 0.8em;">⚡ ${c.cooldown}s</p>
+                                    <small style="color: red;">클릭하여 해제</small>
+                                </div>
+                            `).join('') : "<p style='color:#999;'>장착된 스킬이 없습니다.</p>"}
+                        </div>
+                    </div>
         
-                // [수정] 체인 리스트: 해제 버튼 추가
-                document.getElementById('chain-list').innerHTML = chain.length > 0
-                    ? chain.map(c => `
-                        <div class="card" style="border-color: #007bff;">
-                            <div style="display:flex; justify-content:space-between;">
-                                <span style="font-weight:bold; color:#007bff;">#${c.chainOrder + 1}</span>
-                                <button onclick="unequipSkill(${c.id})" style="border:none; background:none; color:red; cursor:pointer;">✖</button>
-                            </div>
-                            <h3>${c.skillName}</h3>
-                            <p>⚡ ${c.cooldown}s | ⚔️ ${c.effectValue}</p>
-                        </div>`).join('')
-                    : "<p>장착된 스킬이 없습니다. 인벤토리의 스킬을 클릭하세요.</p>";
+                    <div style="padding: 15px; background: #eef2f7; border-radius: 8px;">
+                        <h4>보유 중인 스킬 (클릭 시 장착)</h4>
+                        <div id="available-skills" style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px;">
+                            ${inventory.length > 0 ? inventory.map(item => {
+                                // 중복 체크: 이미 체인에 있는 스킬인지 확인
+                                const isEquipped = chain.some(c => c.skillName === item.skillName);
+                                return `
+                                <div class="card" style="width: 140px; flex-shrink: 0; ${isEquipped ? 'opacity: 0.5; background: #eee;' : 'cursor: pointer;'}" 
+                                     onclick="${isEquipped ? '' : `equipSkill('${item.skillName}')`}">
+                                    <h3 style="font-size: 1em;">${item.skillName}</h3>
+                                    <p style="font-size: 0.8em;">보유: ${item.quantity}개</p>
+                                    ${isEquipped ? '<b style="color: #666; font-size: 0.8em;">장착 중</b>' : '<b style="color: #28a745; font-size: 0.8em;">장착 가능</b>'}
+                                </div>`;
+                            }).join('') : "<p>보유 스킬이 없습니다.</p>"}
+                        </div>
+                    </div>
+                `;
+        
+                // 2. 인벤토리 뷰도 동기화 (단순 리스트용)
+                document.getElementById('inventory-list').innerHTML = inventory.map(item => `
+                    <div class="card">
+                        <h3>${item.skillName}</h3>
+                        <p>수량: ${item.quantity}개</p>
+                    </div>
+                `).join('');
         
             } catch (e) {
                 console.error("데이터 로드 오류:", e);
             }
         }
         
-        // [추가] 스킬 해제 함수 (체인에서 삭제)
-        window.unequipSkill = async (chainId) => {
-            if(!confirm("이 스킬을 체인에서 제거하시겠습니까?")) return;
-            try {
-                const res = await fetch(`${API_BASE_URL}/api/chain/unequip?id=${chainId}`, {
-                    method: 'DELETE'
-                });
-                if(res.ok) {
-                    loadChainAndInventory(); // 목록 새로고침
-                } else {
-                    alert("해제 실패!");
-                }
-            } catch(e) {
-                console.error("해제 중 오류:", e);
-            }
-        };
+        // 스킬 장착 (중복 체크 포함)
         window.equipSkill = async (skillName) => {
+            // 프론트엔드 1차 필터링은 loadChainAndInventory에서 '장착 중' 표시로 처리됨
             const res = await fetch(`${API_BASE_URL}/api/chain/equip`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ uid: currentUid, skillName })
             });
-            if(res.ok) { loadChainAndInventory(); }
-            else { alert("장착 실패!"); }
+        
+            if(res.ok) {
+                loadChainAndInventory();
+            } else {
+                const errMsg = await res.text();
+                alert(errMsg === "ALREADY_EQUIPPED" ? "이미 장착된 스킬입니다." : "장착 실패!");
+            }
         };
-
+        
         window.resetChain = async () => {
             if(!confirm("체인을 비우시겠습니까?")) return;
             await fetch(`${API_BASE_URL}/api/chain/reset?uid=${currentUid}`, { method: 'POST' });
