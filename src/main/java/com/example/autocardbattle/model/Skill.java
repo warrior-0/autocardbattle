@@ -1,38 +1,32 @@
 package com.example.autocardbattle.model;
+import lombok.Getter;
 
+// DB에 저장되지 않는 전투 로직용 객체
+@Getter
 public class Skill {
     private String name;
     private int cooldown;
-    private int chainOrder;
+    private int order;
+    private String type;
+    private int value;
 
-    private int nextReadyTime;
-    private int readySinceTime; // READY 상태가 된 시점
+    private int nextReadyTime = 0;
+    private int readySince = 0;
 
-    public Skill(String name, int cooldown, int chainOrder) {
-        this.name = name;
-        this.cooldown = cooldown;
-        this.chainOrder = chainOrder;
-        this.nextReadyTime = cooldown;
-        this.readySinceTime = -1;
+    public Skill(String name, int cooldown, int order, String type, int value) {
+        this.name = name; this.cooldown = cooldown; 
+        this.order = order; this.type = type; this.value = value;
     }
 
     public boolean isReady(int currentTime) {
-        if (currentTime >= nextReadyTime) {
-            if (readySinceTime == -1) {
-                readySinceTime = currentTime;
-            }
-            return true;
+        if (currentTime >= nextReadyTime && readySince == 0) {
+            readySince = currentTime;
         }
-        return false;
+        return currentTime >= nextReadyTime;
     }
 
     public void use(int currentTime) {
-        nextReadyTime = currentTime + cooldown;
-        readySinceTime = -1;
+        this.nextReadyTime = currentTime + cooldown;
+        this.readySince = 0;
     }
-
-    // Getter & Setter
-    public String getName() { return name; }
-    public int getReadySinceTime() { return readySinceTime; }
-    public int getChainOrder() { return chainOrder; }
 }
