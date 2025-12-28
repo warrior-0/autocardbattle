@@ -216,7 +216,7 @@
                         btns.forEach(b => b.disabled = false);
                         loadUserData();
                     }
-                }, 200); // 0.2초 간격 연출
+                }, 1000); // 1초 간격 연출
             } catch(e) {
                 logDiv.innerHTML = "❌ 오류 발생: 서버 연결을 확인하세요.";
                 btns.forEach(b => b.disabled = false);
