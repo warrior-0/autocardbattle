@@ -1,58 +1,93 @@
 package com.example.autocardbattle.service;
 
-import com.example.autocardbattle.model.Skill;
+import com.example.autocardbattle.entity.SkillChainEntity;
+import com.example.autocardbattle.entity.UserEntity;
+import com.example.autocardbattle.factory.MonsterFactory;
+import com.example.autocardbattle.model.BattleResult;
 import com.example.autocardbattle.model.Monster;
+import com.example.autocardbattle.model.Skill;
+import com.example.autocardbattle.repository.SkillChainRepository;
+import com.example.autocardbattle.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 public class BattleService {
+    @Autowired private UserRepository userRepository;
+    @Autowired private SkillChainRepository chainRepository;
 
-    // 유저마다 독립적인 스킬/몬스터 객체 생성 가능
-    public String simulateBattle(String userId, int duration) {
-        StringBuilder log = new StringBuilder();
+    @Transactional
+    public BattleResult startBattle(String uid, String monsterType) {
+        UserEntity user = userRepository.findById(uid).orElseThrow();
+        Monster monster = MonsterFactory.createMonster(monsterType);
+
+        List<SkillChainEntity> chain = chainRepository.findByFirebaseUidOrderByChainOrderAsc(uid);
+        // DB 엔티티를 전투 로직용 객체(Skill)로 변환
+        List<Skill> skills = chain.stream()
+                .map(e -> new Skill(e.getSkillName(), e.getCooldown(), e.getChainOrder(), e.getEffectType(), e.getEffectValue()))
+                .collect(Collectors.toList());
+
+        List<String> logs = new ArrayList<>();
+        int playerHp = user.getMaxHp();
+        int monsterHp = monster.getHp();
         int time = 0;
+        double damageMultiplier = 1.0;
 
-        List<Skill> skills = new ArrayList<>();
-        skills.add(new Skill("강화", 10, 0));
-        skills.add(new Skill("출혈", 4, 1));
-        skills.add(new Skill("약공", 1, 2));
-        skills.add(new Skill("폭발", 6, 3));
-        skills.add(new Skill("회피", 3, 4));
+        logs.add("전투 시작! 상대: " + monster.getName());
 
-        List<Monster> monsters = new ArrayList<>();
-        monsters.add(new Monster("슬라임", 50, List.of(skills.get(1), skills.get(2))));
-        monsters.add(new Monster("고블린", 80, List.of(skills.get(3), skills.get(4))));
+        while (time < 100 && playerHp > 0 && monsterHp > 0) {
+            time++;
+            final int currentTime = time;
+            
+            // 1. 유저 행동 (우선순위 큐 로직)
+            Skill skillToUse = skills.stream()
+                    .filter(s -> s.isReady(currentTime))
+                    .sorted(Comparator.comparingInt(Skill::getReadySince).thenComparingInt(Skill::getOrder))
+                    .findFirst().orElse(null);
 
-        while (time < duration) {
-            List<Skill> readySkills = new ArrayList<>();
-            for (Skill s : skills) {
-                if (s.isReady(time)) readySkills.add(s);
-            }
-
-            // READY 시간 우선, 체인 순서 보조
-            readySkills.sort(Comparator.comparing(Skill::getReadySinceTime)
-                    .thenComparing(Skill::getChainOrder));
-
-            if (!readySkills.isEmpty()) {
-                Skill selected = readySkills.get(0);
-                selected.use(time);
-                log.append(String.format("[t=%.1f] %s 발동!\n", time, selected.getName()));
-
-                // 몬스터 데미지 적용 (단순 예시)
-                for (Monster m : monsters) {
-                    if (m.isAlive()) {
-                        m.takeDamage(5);
-                        log.append(String.format("  → %s 데미지 5, 남은 HP: %d\n", m.getName(), m.getHp()));
+            if (skillToUse != null) {
+                switch (skillToUse.getType()) {
+                    case "DAMAGE":
+                        int dmg = (int) (skillToUse.getValue() * damageMultiplier);
+                        monsterHp -= dmg;
+                        logs.add(String.format("[T%d] %s 발동! %d 데미지 (남은 적 HP: %d)", currentTime, skillToUse.getName(), dmg, Math.max(0, monsterHp)));
+                        damageMultiplier = 1.0; // 버프 소모
                         break;
-                    }
+                    case "HEAL":
+                        int heal = skillToUse.getValue();
+                        playerHp = Math.min(user.getMaxHp(), playerHp + heal);
+                        logs.add(String.format("[T%d] %s 발동! %d 회복 (현재 HP: %d)", currentTime, skillToUse.getName(), heal, playerHp));
+                        break;
+                    case "BUFF":
+                        damageMultiplier += (skillToUse.getValue() / 100.0);
+                        logs.add(String.format("[T%d] %s 발동! 다음 공격 강화", currentTime, skillToUse.getName()));
+                        break;
                 }
+                skillToUse.use(currentTime);
             }
 
-            time += 1; // 1초 단위
-        }
+            // 2. 몬스터 반격 (매 3초마다 공격한다고 가정)
+            if (time % 3 == 0 && monsterHp > 0) {
+                playerHp -= monster.getDamage();
+                // logs.add(String.format("[T%d] 몬스터 반격! (내 HP: %d)", currentTime, playerHp));
+            }
 
-        return log.toString();
+            if (monsterHp <= 0) {
+                logs.add("🎉 승리했습니다!");
+                user.addExp(monster.getExpReward());
+                user.setGold(user.getGold() + monster.getGoldReward());
+                userRepository.save(user);
+                return new BattleResult("WIN", logs);
+            }
+        }
+        
+        logs.add("패배하거나 무승부...");
+        return new BattleResult("LOSE", logs);
     }
 }
