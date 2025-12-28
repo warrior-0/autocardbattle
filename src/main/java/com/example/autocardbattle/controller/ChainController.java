@@ -19,6 +19,12 @@ public class ChainController {
     @Autowired private SkillChainRepository chainRepository;
     @Autowired private SkillMasterRepository skillMasterRepository;
 
+    @GetMapping("/inventory")
+    public List<com.example.autocardbattle.entity.InventoryEntity> getInventory(@RequestParam String uid) {
+        // 유저의 UID를 기준으로 인벤토리 목록을 조회하여 반환
+        return inventoryRepository.findByFirebaseUid(uid);
+    }
+
     @GetMapping("/list")
     public List<SkillChainEntity> getChain(@RequestParam String uid) {
         return chainRepository.findByFirebaseUidOrderByChainOrderAsc(uid);
