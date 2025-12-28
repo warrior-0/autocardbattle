@@ -9,13 +9,18 @@ public class Skill {
     private int order;
     private String type;
     private int value;
-
+    private int nextAvailableTime;
+    
     private int nextReadyTime = 0;
     private int readySince = 0;
-
+    
     public Skill(String name, int cooldown, int order, String type, int value) {
         this.name = name; this.cooldown = cooldown; 
         this.order = order; this.type = type; this.value = value;
+    }
+
+    public void setNextAvailableTime(int cooldown) {
+        this.nextAvailableTime = cooldown;
     }
 
     public boolean isReady(int currentTime) {
