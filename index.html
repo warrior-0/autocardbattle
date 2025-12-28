@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto Card Battle</title>
     <style>
+        /* 기존 스타일 유지 */
         body { font-family: 'Pretendard', sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background-color: #f4f4f4; line-height: 1.6; }
         .view { display: none; }
         .active { display: block; }
@@ -78,34 +79,46 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
-        // --- 설정 ---
-        const API_BASE_URL = "https://autocardbattle.onrender.com"; // 본인의 실제 Render 주소
-        const firebaseConfig = {
-            apiKey: "FIREBASE_API_KEY_PLACEHOLDER",
-            authDomain: "FIREBASE_AUTH_DOMAIN_PLACEHOLDER",
-            projectId: "FIREBASE_PROJECT_ID_PLACEHOLDER",
-            storageBucket: "FIREBASE_STORAGE_BUCKET_PLACEHOLDER",
-            messagingSenderId: "FIREBASE_SENDER_ID_PLACEHOLDER",
-            appId: "FIREBASE_APP_ID_PLACEHOLDER"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
+        // --- 1. 설정 및 글로벌 변수 ---
+        const API_BASE_URL = "https://autocardbattle.onrender.com"; // 실제 Render 주소로 유지
+        let auth = null;
         let currentUid = null;
 
-        // --- 페이지 로드 시 로그인 상태 체크 ---
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                currentUid = user.uid;
-                loadUserData();
-                document.getElementById('auth-view').classList.remove('active');
-                document.getElementById('game-container').classList.remove('hidden');
-                showView('user-view');
-            }
-        });
+        // --- 2. 초기화 함수 (서버에서 키 가져오기) ---
+        async function initGame() {
+            try {
+                // 백엔드 API로부터 Firebase 설정값 가져오기
+                const configRes = await fetch(`${API_BASE_URL}/api/config/firebase`);
+                if (!configRes.ok) throw new Error("설정 데이터를 가져오지 못했습니다.");
+                
+                const firebaseConfig = await configRes.json();
+                
+                // 받아온 값으로 Firebase 초기화
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
 
-        // --- 회원가입 ---
+                // 초기화 완료 후 인증 리스너 등록
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUid = user.uid;
+                        loadUserData();
+                        document.getElementById('auth-view').classList.remove('active');
+                        document.getElementById('game-container').classList.remove('hidden');
+                        showView('user-view');
+                    }
+                });
+            } catch (error) {
+                console.error("초기화 에러:", error);
+                alert("서버 연결에 실패했습니다. (CORS 또는 Render 서버 상태 확인)");
+            }
+        }
+
+        // 실행
+        initGame();
+
+        // --- 3. 회원가입/로그인 함수 (전역 바인딩) ---
         window.handleSignup = async () => {
+            if (!auth) return alert("Firebase 초기화 중입니다...");
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             const username = document.getElementById('username').value;
@@ -118,12 +131,12 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ uid: cred.user.uid, username })
                 });
-                if(res.ok) alert("가입 성공! 로그인 하세요.");
+                if(res.ok) alert("가입 성공! 이제 로그인 하세요.");
             } catch(e) { alert("가입 실패: " + e.message); }
         };
 
-        // --- 로그인 ---
         window.handleLogin = async () => {
+            if (!auth) return alert("Firebase 초기화 중입니다...");
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             try {
@@ -133,14 +146,13 @@
 
         window.logout = () => { signOut(auth).then(() => location.reload()); };
 
-        // --- 뷰 전환 ---
+        // --- 4. 게임 로직 함수들 (window 객체에 바인딩하여 HTML에서 호출 가능하게 함) ---
         window.showView = (id) => {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(id).classList.add('active');
             if(id === 'inventory-view' || id === 'chain-view') loadChainAndInventory();
         };
 
-        // --- 데이터 로딩 ---
         async function loadUserData() {
             if(!currentUid) return;
             const res = await fetch(`${API_BASE_URL}/api/user/login?uid=${currentUid}`);
@@ -174,7 +186,6 @@
             `).join('');
         }
 
-        // --- 체인 관리 ---
         window.equipSkill = async (skillName) => {
             const res = await fetch(`${API_BASE_URL}/api/chain/equip`, {
                 method: 'POST',
@@ -191,77 +202,57 @@
             loadChainAndInventory();
         };
 
-        // --- ⚔️ 전투 실행 (연출 강화) ---
         window.startBattle = async (type) => {
-        const logDiv = document.getElementById('battle-log');
-        const btns = [document.getElementById('btn-dummy'), document.getElementById('btn-infinite')];
+            const logDiv = document.getElementById('battle-log');
+            const btns = [document.getElementById('btn-dummy'), document.getElementById('btn-infinite')];
+            btns.forEach(b => b.disabled = true);
+            logDiv.innerHTML = "⚔️ <strong>전투를 준비 중입니다...</strong>";
         
-        btns.forEach(b => b.disabled = true);
-        logDiv.innerHTML = "⚔️ <strong>전투를 준비 중입니다...</strong>";
-    
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/battle/start?uid=${currentUid}&monsterType=${type}`);
-            const data = await res.json();
-            
-            logDiv.innerHTML = "⚔️ <strong>전투 시작!</strong><br><br>";
-    
-            // 1. 로그를 틱(Time) 단위로 그룹화
-            // 예: { "T1": ["로그1", "로그2"], "T2": ["로그3"] }
-            const groupedLogs = {};
-            const otherLogs = []; // [T] 표시가 없는 시작/종료 메시지용
-    
-            data.logs.forEach(log => {
-                const match = log.match(/\[T(\d+)\]/); // [T1], [T2] 패턴 찾기
-                if (match) {
-                    const tick = match[0]; // "[T1]"
-                    if (!groupedLogs[tick]) groupedLogs[tick] = [];
-                    groupedLogs[tick].push(log);
-                } else {
-                    otherLogs.push(log);
-                }
-            });
-    
-            // 2. 틱 번호 순서대로 정렬된 리스트 생성
-            const ticks = Object.keys(groupedLogs).sort((a, b) => {
-                return parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, ''));
-            });
-    
-            // 3. 시작 로그 출력 (전투 시작! 등)
-            const startMessages = otherLogs.filter(msg => !msg.includes("승리") && !msg.includes("패배"));
-            startMessages.forEach(msg => logDiv.innerHTML += `> ${msg}<br>`);
-    
-            let tickIdx = 0;
-            const interval = setInterval(() => {
-                if (tickIdx < ticks.length) {
-                    const currentTick = ticks[tickIdx];
-                    const tickLogs = groupedLogs[currentTick];
-    
-                    // 해당 틱에 발생한 모든 로그를 한꺼번에 출력
-                    tickLogs.forEach(msg => {
-                        logDiv.innerHTML += `> ${msg}<br>`;
-                    });
-                    
-                    logDiv.scrollTop = logDiv.scrollHeight;
-                    tickIdx++;
-                } else {
-                    // 모든 틱 출력 후 종료 로그 (승리/패배 등) 출력
-                    clearInterval(interval);
-                    const endMessages = otherLogs.filter(msg => msg.includes("승리") || msg.includes("패배") || msg.includes("무승부"));
-                    endMessages.forEach(msg => logDiv.innerHTML += `<br><strong>${msg}</strong><br>`);
-                    
-                    const color = data.result === "WIN" ? "#28a745" : "#dc3545";
-                    logDiv.innerHTML += `<br><strong style="color:${color}; font-size:1.2em;">[최종 결과: ${data.result}]</strong><br>`;
-                    
-                    btns.forEach(b => b.disabled = false);
-                    loadUserData();
-                }
-            }, 1000); // 정확히 1초마다 1틱분량 출력
-        } catch(e) {
-            console.error(e);
-            logDiv.innerHTML = "❌ 서버 연결 오류가 발생했습니다.";
-            btns.forEach(b => b.disabled = false);
-        }
-    };
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/battle/start?uid=${currentUid}&monsterType=${type}`);
+                const data = await res.json();
+                logDiv.innerHTML = "⚔️ <strong>전투 시작!</strong><br><br>";
+
+                const groupedLogs = {};
+                const otherLogs = [];
+
+                data.logs.forEach(log => {
+                    const match = log.match(/\[T(\d+)\]/);
+                    if (match) {
+                        const tick = match[0];
+                        if (!groupedLogs[tick]) groupedLogs[tick] = [];
+                        groupedLogs[tick].push(log);
+                    } else {
+                        otherLogs.push(log);
+                    }
+                });
+
+                const ticks = Object.keys(groupedLogs).sort((a, b) => parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, '')));
+                const startMessages = otherLogs.filter(msg => !msg.includes("승리") && !msg.includes("패배") && !msg.includes("무승부"));
+                startMessages.forEach(msg => logDiv.innerHTML += `> ${msg}<br>`);
+
+                let tickIdx = 0;
+                const interval = setInterval(() => {
+                    if (tickIdx < ticks.length) {
+                        const tickLogs = groupedLogs[ticks[tickIdx]];
+                        tickLogs.forEach(msg => { logDiv.innerHTML += `> ${msg}<br>`; });
+                        logDiv.scrollTop = logDiv.scrollHeight;
+                        tickIdx++;
+                    } else {
+                        clearInterval(interval);
+                        const endMessages = otherLogs.filter(msg => msg.includes("승리") || msg.includes("패배") || msg.includes("무승부"));
+                        endMessages.forEach(msg => logDiv.innerHTML += `<br><strong>${msg}</strong><br>`);
+                        const color = data.result === "WIN" ? "#28a745" : "#dc3545";
+                        logDiv.innerHTML += `<br><strong style="color:${color}; font-size:1.2em;">[최종 결과: ${data.result}]</strong><br>`;
+                        btns.forEach(b => b.disabled = false);
+                        loadUserData();
+                    }
+                }, 1000);
+            } catch(e) {
+                logDiv.innerHTML = "❌ 서버 연결 오류가 발생했습니다.";
+                btns.forEach(b => b.disabled = false);
+            }
+        };
     </script>
 </body>
 </html>
