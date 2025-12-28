@@ -27,8 +27,10 @@ public class BattleService {
         UserEntity user = userRepository.findById(uid).orElseThrow();
         Monster monster = MonsterFactory.createMonster(monsterType);
 
+        // 1. 체인 무제한 데이터를 가져옴 (Order순 정렬)
         List<SkillChainEntity> chain = chainRepository.findByFirebaseUidOrderByChainOrderAsc(uid);
-        // DB 엔티티를 전투 로직용 객체(Skill)로 변환
+        
+        // 2. 전투용 Skill 객체로 변환
         List<Skill> skills = chain.stream()
                 .map(e -> new Skill(e.getSkillName(), e.getCooldown(), e.getChainOrder(), e.getEffectType(), e.getEffectValue()))
                 .collect(Collectors.toList());
@@ -39,13 +41,14 @@ public class BattleService {
         int time = 0;
         double damageMultiplier = 1.0;
 
-        logs.add("전투 시작! 상대: " + monster.getName());
+        logs.add("⚔️ 전투 시작! 상대: " + monster.getName() + " (HP: " + monsterHp + ")");
 
-        while (time < 100 && playerHp > 0 && monsterHp > 0) {
+        // 3. 전투 루프 (체인이 길어질 것을 대비해 500틱으로 연장)
+        while (time < 500 && playerHp > 0 && monsterHp > 0) {
             time++;
             final int currentTime = time;
             
-            // 1. 유저 행동 (우선순위 큐 로직)
+            // [유저 턴] READY 우선순위 큐 로직
             Skill skillToUse = skills.stream()
                     .filter(s -> s.isReady(currentTime))
                     .sorted(Comparator.comparingInt(Skill::getReadySince).thenComparingInt(Skill::getOrder))
@@ -56,38 +59,44 @@ public class BattleService {
                     case "DAMAGE":
                         int dmg = (int) (skillToUse.getValue() * damageMultiplier);
                         monsterHp -= dmg;
-                        logs.add(String.format("[T%d] %s 발동! %d 데미지 (남은 적 HP: %d)", currentTime, skillToUse.getName(), dmg, Math.max(0, monsterHp)));
+                        logs.add(String.format("[T%d] %s! 💥%d 데미지 (적 HP: %d)", currentTime, skillToUse.getName(), dmg, Math.max(0, monsterHp)));
                         damageMultiplier = 1.0; // 버프 소모
                         break;
                     case "HEAL":
                         int heal = skillToUse.getValue();
                         playerHp = Math.min(user.getMaxHp(), playerHp + heal);
-                        logs.add(String.format("[T%d] %s 발동! %d 회복 (현재 HP: %d)", currentTime, skillToUse.getName(), heal, playerHp));
+                        logs.add(String.format("[T%d] %s! 💚%d 회복 (내 HP: %d)", currentTime, skillToUse.getName(), heal, playerHp));
                         break;
                     case "BUFF":
+                        // 예: 가치가 50이면 1.5배 데미지
                         damageMultiplier += (skillToUse.getValue() / 100.0);
-                        logs.add(String.format("[T%d] %s 발동! 다음 공격 강화", currentTime, skillToUse.getName()));
+                        logs.add(String.format("[T%d] %s! ✨다음 공격 강화 (x%.1f)", currentTime, skillToUse.getName(), damageMultiplier));
                         break;
                 }
                 skillToUse.use(currentTime);
             }
 
-            // 2. 몬스터 반격 (매 3초마다 공격한다고 가정)
+            // [몬스터 턴] 3틱마다 공격 (너무 자주 때리지 않도록 조정)
             if (time % 3 == 0 && monsterHp > 0) {
-                playerHp -= monster.getDamage();
-                // logs.add(String.format("[T%d] 몬스터 반격! (내 HP: %d)", currentTime, playerHp));
+                int monsterDmg = monster.getDamage();
+                playerHp -= monsterDmg;
+                logs.add(String.format("[T%d] 👾몬스터 공격! %d 데미지 (내 HP: %d)", currentTime, monsterDmg, Math.max(0, playerHp)));
             }
 
+            // 승리 판정
             if (monsterHp <= 0) {
-                logs.add("🎉 승리했습니다!");
+                logs.add("🏆 승리했습니다!");
                 user.addExp(monster.getExpReward());
                 user.setGold(user.getGold() + monster.getGoldReward());
-                userRepository.save(user);
+                userRepository.save(user); // 결과 반영
                 return new BattleResult("WIN", logs);
             }
         }
         
-        logs.add("패배하거나 무승부...");
-        return new BattleResult("LOSE", logs);
+        // 결과 판정
+        String finalResult = (playerHp <= 0) ? "LOSE" : "DRAW";
+        logs.add(finalResult.equals("LOSE") ? "💀 패배했습니다..." : "⏱ 시간 초과로 무승부");
+        
+        return new BattleResult(finalResult, logs);
     }
 }
