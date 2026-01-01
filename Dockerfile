@@ -2,21 +2,21 @@
 FROM maven:3.9.6-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# [개선] pom.xml만 먼저 복사하여 라이브러리를 미리 다운로드합니다.
-# 이 레이어는 pom.xml이 수정되지 않는 한 Render에서 캐싱되어 재사용됩니다.
+# [변경 포인트 1] pom.xml만 먼저 복사합니다.
 COPY pom.xml .
+
+# [변경 포인트 2] 의존성 라이브러리만 미리 다운로드합니다.
+# 이 단계가 실행되면 라이브러리들이 Docker 레이어에 저장(캐싱)됩니다.
+# pom.xml이 수정되지 않는 한, 다음 배포부터 이 과정은 순식간에 지나갑니다.
 RUN mvn dependency:go-offline -B
 
-# 소스 코드를 복사하고 빌드합니다.
-# 이제 라이브러리는 이미 받아져 있으므로 코드 변경 시 빌드 시간이 획기적으로 줄어듭니다.
+# [변경 포인트 3] 그 다음 소스 코드를 복사하고 빌드합니다.
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-# 2. 실행 단계
+# 2. 실행 단계 (이전과 동일)
 FROM eclipse-temurin:17-jdk
 WORKDIR /app
-
 COPY --from=build /app/target/*.jar app.jar
-
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
