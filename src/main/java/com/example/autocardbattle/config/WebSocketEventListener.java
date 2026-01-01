@@ -39,7 +39,9 @@ public class WebSocketEventListener {
                 
                 // 3. 방 정보 정리
                 BattleController.getUserRooms().remove(userUid);
-                // 추가적인 게임 상태 정리 로직이 필요할 수 있습니다.
+                
+                // 이탈 발생 시 즉시 방 데이터 정리
+                BattleController.removeRoomData(roomId);
             }
         }
     }
