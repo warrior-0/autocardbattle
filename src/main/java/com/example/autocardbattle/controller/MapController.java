@@ -7,17 +7,15 @@ public class MapController {
     private MapRepository mapRepository;
 
     @PostMapping("/save")
-    public ResponseEntity<?> saveMap(@RequestBody MapRequest request) {
+    public ResponseEntity<?> saveMap(@RequestBody Map<String, String> request) {
         try {
-            MapEntity map = new MapEntity();
-            map.setCreatorUid(request.getCreatorUid());
-            map.setMapData(request.getMapData());
-            
-            mapRepository.save(map);
-            return ResponseEntity.ok("Saved");
+            mapService.saveMap(request.get("creatorUid"), request.get("mapData"));
+            return ResponseEntity.ok("전장이 성공적으로 저장되었습니다.");
+        } catch (RuntimeException e) {
+            // "이미 동일한 구조의 전장이 존재합니다!" 메시지를 프론트로 전달
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         } catch (Exception e) {
-            // 중복된 맵(Unique 제약 조건)일 경우 에러 처리
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Duplicate or Error");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("서버 오류가 발생했습니다.");
         }
     }
 }
