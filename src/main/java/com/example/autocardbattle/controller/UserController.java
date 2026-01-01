@@ -1,8 +1,10 @@
 package com.example.autocardbattle.controller;
 
 import com.example.autocardbattle.entity.UserEntity;
+import com.example.autocardbattle.repository.UserRepository;
 import com.example.autocardbattle.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
