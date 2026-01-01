@@ -589,6 +589,11 @@ function onTileClickForBattle(x, y) {
 // 서버에서 오는 실시간 메시지 처리기 (handleBattleMessage 보완)
 function handleBattleMessage(data) {
     switch(data.type) {
+        case "OPPONENT_LEFT": // ✅ 상대방 이탈 케이스 추가
+            alert("상대방이 전장을 이탈했습니다. 당신의 승리입니다!");
+            navTo('home'); // 홈으로 이동
+            break;
+        
         case "MATCH_FOUND": // 매칭 성공 및 맵 정보 수신
             loadMapToGrid(data.mapData);
             myHand = data.hand;
