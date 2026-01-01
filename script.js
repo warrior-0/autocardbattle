@@ -199,7 +199,8 @@ function navTo(page) {
         alert("전장 준비 중입니다! 주사위 시스템을 먼저 구축해볼까요?");
     } else if (page === 'deck') {
         alert("덱 구성 시스템 준비 중입니다.");
-    }
+    } else if (page === 'home') {
+        document.getElementById('home-screen').style.display = 'block';
 }
 
 // handleServerLogin 성공 시 showHome 호출로 변경
