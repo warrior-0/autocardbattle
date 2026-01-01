@@ -184,7 +184,7 @@ function selectType(type, e) {
 
 function saveMap() {
     let tilesArray = [];
-    let emptyCoordinates = []; // 빈 곳의 위치를 추적합니다.
+    let hasempty = false; // 빈 곳의 위치를 추적합니다.
 
     for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
@@ -192,15 +192,14 @@ function saveMap() {
             
             // 검사 조건 강화: undefined, null, "", "EMPTY" 모두 체크
             if (!tile || tile === 'EMPTY' || tile.trim() === "") {
-                emptyCoordinates.push(`(${x+1}, ${y+1})`);
+                hasempty = true;
             }
             tilesArray.push(tile);
         }
     }
 
     // 1. 빈 공간이 발견된 경우
-    if (emptyCoordinates.length > 0) {
-        console.error("빈 칸 목록:", emptyCoordinates);
+    if (hasempty) {
         alert(`⚠️ 아직 채워지지 않은 칸이 ${emptyCoordinates.length}개 있습니다.\n확인 후 다시 시도해주세요!`);
         return;
     }
