@@ -161,19 +161,40 @@ function selectType(type, e) {
     e.target.classList.add('active');
 }
 
-async function saveMap() {
-    const halfMap = mapData.filter(t => t.x < 4);
-    try {
-        const response = await fetch(`${SERVER_URL}/api/map/save`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(halfMap)
-        });
-        const result = await response.text();
-        alert(response.ok ? result : "저장 실패: " + result);
-    } catch (error) {
-        alert("서버 연결 실패");
+function saveMap() {
+    let mapHash = ""; 
+    let hasEmpty = false;
+
+    // 2차원 배열을 순회하며 64글자 문자열 생성
+    for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+            const tile = mapData[y][x];
+            
+            if (tile === 'EMPTY' || !tile) {
+                hasEmpty = true;
+                mapHash += "."; // 일단 기록은 하지만 나중에 거절용
+            } else if (tile === 'MY_TILE') mapHash += 'M';
+            else if (tile === 'ENEMY_TILE') mapHash += 'E';
+            else if (tile === 'WALL') mapHash += 'W';
+        }
     }
+
+    if (hasEmpty) {
+        alert("⚠️ 모든 칸을 채워야 저장할 수 있습니다! (빈 공간 발견)");
+        return;
+    }
+
+    // 서버로 mapHash만 전송
+    fetch(`${SERVER_URL}/api/map/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            mapHash: mapHash,
+            creatorUid: currentUser.firebaseUid
+        })
+    })
+    .then(res => res.ok ? alert("맵 저장 완료!") : alert("저장 실패"))
+    .catch(err => console.error(err));
 }
 
 // script.js 수정 및 추가
