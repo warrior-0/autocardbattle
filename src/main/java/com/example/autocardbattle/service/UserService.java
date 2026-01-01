@@ -1,15 +1,11 @@
 package com.example.autocardbattle.service;
 
-import com.example.autocardbattle.entity.UserEntity;
-import com.example.autocardbattle.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class UserService {
-    @Autowired private UserRepository userRepository;
-    @Autowired private InventoryRepository inventoryRepository;
 
     @Transactional
     public UserEntity createUser(String uid, String username) {
@@ -22,7 +18,6 @@ public class UserService {
         UserEntity user = new UserEntity();
         user.setFirebaseUid(uid);
         user.setUsername(username);
-        userRepository.save(user);
 
         return user;
     }
