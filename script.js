@@ -163,46 +163,41 @@ function selectType(type, e) {
 
 function saveMap() {
     let tilesArray = [];
-    let hasEmpty = false;
+    let emptyCoordinates = []; // 빈 곳의 위치를 추적합니다.
 
-    // 1. 2차원 배열을 순회하며 데이터 수집
     for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
             const tile = mapData[y][x];
-            if (tile === 'EMPTY' || !tile) {
-                hasEmpty = true;
+            
+            // 검사 조건 강화: undefined, null, "", "EMPTY" 모두 체크
+            if (!tile || tile === 'EMPTY' || tile.trim() === "") {
+                emptyCoordinates.push(`(${x+1}, ${y+1})`);
             }
-            tilesArray.push(tile); // "MY_TILE" 등을 그대로 저장
+            tilesArray.push(tile);
         }
     }
 
-    // 2. 빈 공간 검사
-    if (hasEmpty) {
-        alert("⚠️ 모든 칸을 채워야 저장할 수 있습니다!");
+    // 1. 빈 공간이 발견된 경우
+    if (emptyCoordinates.length > 0) {
+        console.error("빈 칸 목록:", emptyCoordinates);
+        alert(`⚠️ 아직 채워지지 않은 칸이 ${emptyCoordinates.length}개 있습니다.\n확인 후 다시 시도해주세요!`);
         return;
     }
 
-    // 3. 쉼표로 이어 붙이기 (가독성 버전)
+    // 2. 모든 칸이 채워졌다면 저장 진행
     const fullMapString = tilesArray.join(",");
-
-    // 4. 서버 전송
+    
+    // 서버 전송 로직...
     fetch(`${SERVER_URL}/api/map/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            mapData: fullMapString, // 64개의 단어가 쉼표로 연결된 상태
-            creatorUid: currentUser.firebaseUid // 현재 로그인한 유저 UID
+            mapData: fullMapString,
+            creatorUid: currentUser.firebaseUid
         })
-    })
-    .then(res => {
-        if (res.ok) {
-            alert("✅ 전장이 성공적으로 저장되었습니다!");
-            navTo('home'); // 저장 후 홈으로 이동
-        } else {
-            alert("❌ 저장 실패 (이미 존재하는 맵일 수 있습니다)");
-        }
-    })
-    .catch(err => console.error("통신 오류:", err));
+    }).then(res => {
+        if(res.ok) alert("✅ 전장이 성공적으로 저장되었습니다!");
+    });
 }
 
 function loadMapToGrid(fullMapString) {
