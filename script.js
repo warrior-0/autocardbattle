@@ -241,42 +241,54 @@ function showHome() {
 
 // 메뉴 이동 함수
 function navTo(page) {
-    // 1. 모든 게임 섹션들을 리스트로 만듭니다.
-    const allSections = ['auth-form', 'home-screen', 'editor-section', 'deck-section', 'battle-header', 'battle-hand-section'];
+    // 1. 모든 주요 섹션과 UI 요소 리스트
+    const allSections = [
+        'auth-form', 
+        'home-screen', 
+        'editor-section', 
+        'deck-section', 
+        'battle-header', 
+        'battle-hand-section'
+    ];
     
-    // 2. 일단 모든 섹션을 보이지 않게 처리합니다.
+    // 2. 일단 모든 요소를 숨김 처리
     allSections.forEach(id => {
         const element = document.getElementById(id);
         if (element) element.style.display = 'none';
     });
     
-    // 3. 사용자가 요청한 페이지(섹션)만 켭니다.
+    // 3. 페이지별 맞춤 화면 표시
     if (page === 'editor') {
         document.getElementById('editor-section').style.display = 'block';
-        initMap(); // 에디터 초기화
+        // 에디터일 때는 팔레트와 저장 버튼을 보여줌
+        document.querySelector('.palette').style.display = 'flex';
+        document.querySelector('.actions').style.display = 'block';
+        initMap(); 
     } 
     else if (page === 'battle') {
-        const battleHeader = document.getElementById('battle-header');
-        const battleHand = document.getElementById('battle-hand-section');
+        // 배틀 UI 요소들 켜기
+        document.getElementById('battle-header').style.display = 'flex';
+        document.getElementById('battle-hand-section').style.display = 'block';
+        
+        // 전장 그리드(editor-section)를 켜되, 에디터 도구들은 숨김
         const editorSection = document.getElementById('editor-section');
-
-        if (battleHeader) battleHeader.style.display = 'flex';
-        if (battleHand) battleHand.style.display = 'block';
         if (editorSection) {
             editorSection.style.display = 'block';
-            // 전투 모드일 때는 에디터 전용 버튼들을 숨깁니다.
+            // 🏗️ 맵 빌더 글자와 도구들을 숨기는 핵심 코드
+            const editorHeader = editorSection.querySelector('.editor-header h2');
+            if (editorHeader) editorHeader.innerText = "⚔️ 실시간 전장"; // 제목 변경
+            
             const palette = document.querySelector('.palette');
             const actions = document.querySelector('.actions');
-            if (palette) palette.style.display = 'none';
-            if (actions) actions.style.display = 'none';
+            if (palette) palette.style.display = 'none'; // 도구 팔레트 숨김
+            if (actions) actions.style.display = 'none'; // 저장 버튼 숨김
         }
 
-        startMatch();
+        startMatch(); // 매칭 시작
     } 
     else if (page === 'deck') {
-        // 나중에 만들 덱 화면
         document.getElementById('deck-section').style.display = 'block'; 
-        // alert("🎲 덱 구성 시스템 준비 중입니다.");
+        showDeckEditor();
     } 
     else if (page === 'home') {
         document.getElementById('home-screen').style.display = 'block';
