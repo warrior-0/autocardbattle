@@ -511,6 +511,8 @@ async function startMatch() {
 }
 
 // 매칭 취소 함수
+let matchTimer = null;
+
 function cancelMatch() {
     if (matchTimer) clearTimeout(matchTimer); // 다음 재시도 중단
     const overlay = document.getElementById('matching-overlay');
