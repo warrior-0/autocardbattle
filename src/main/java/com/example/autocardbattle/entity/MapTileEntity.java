@@ -14,8 +14,6 @@ public class MapTileEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String firebaseUid; // 맵을 소유한 유저 ID
-
     private int x; // 0~7 (가로)
     private int y; // 0~7 (세로)
 
