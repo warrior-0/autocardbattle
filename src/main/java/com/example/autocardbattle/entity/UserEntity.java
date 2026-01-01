@@ -15,4 +15,7 @@ public class UserEntity {
 
     @Column(unique = true, nullable = false)
     private String username; // 유저 닉네임 (중복 불가)
+
+    @Column
+    private String selectedDeck;
 }
