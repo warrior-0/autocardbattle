@@ -514,10 +514,18 @@ async function startMatch() {
 let matchTimer = null;
 
 function cancelMatch() {
-    if (matchTimer) clearTimeout(matchTimer); // 다음 재시도 중단
+    if (matchTimer) {
+        clearTimeout(matchTimer);
+        matchTimer = null;
+    }
+    // 서버에도 매칭 취소 알림 보내기
+    fetch(`${SERVER_URL}/api/battle/cancel?userUid=${currentUser.firebaseUid}`, {
+        method: 'POST'
+    });
     const overlay = document.getElementById('matching-overlay');
-    if (overlay) overlay.style.display = 'none'; // 오버레이 닫기
-    navTo('home'); // 홈으로 이동
+    if (overlay) overlay.style.display = 'none';
+    
+    navTo('home');
 }
 
 function connectWebSocket() {
