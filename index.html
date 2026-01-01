@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>맵 에디터 MVP</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>맵 에디터</h1>
+        <p class="description">
+            왼쪽 4x8 영역을 클릭하여 맵을 디자인하세요.<br>
+            오른쪽은 <strong>좌우 반전 및 상대 시점</strong>으로 자동 생성됩니다.
+        </p>
+        
+        <div class="palette">
+            <button class="tool-btn active" onclick="selectType('MY_TILE', event)">내 발판</button>
+            <button class="tool-btn" onclick="selectType('ENEMY_TILE', event)">적 발판</button>
+            <button class="tool-btn" onclick="selectType('WALL', event)">벽 설치</button>
+            <button class="tool-btn" onclick="selectType('EMPTY', event)">지우개</button>
+        </div>
+
+        <div class="status-bar">
+            <span id="current-tool">선택된 도구: 내 발판</span> | 
+            <span id="tile-count">내 발판: 0 / 16</span>
+        </div>
+
+        <div id="map-grid" class="grid-container"></div>
+
+        <div class="actions">
+            <button id="save-btn" onclick="saveMap()">맵 데이터 저장하기</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
