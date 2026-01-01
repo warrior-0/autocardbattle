@@ -496,6 +496,13 @@ function handleBattleMessage(data) {
 }
 
 function applyDamage(loserUid) {
+    // 1. 무승부 판정
+    if (loserUid === "NONE") {
+        resetForNextRound(); // 체력 깎지 않고 다음 라운드 준비
+        return;
+    }
+
+    // 2. 패배자 체력 차감
     if (loserUid === currentUser.firebaseUid) {
         myHp--;
         updateHpUI('my-hp', myHp);
@@ -504,13 +511,9 @@ function applyDamage(loserUid) {
         updateHpUI('enemy-hp', enemyHp);
     }
 
-    if (myHp <= 0) {
-        alert("GAME OVER - 패배하셨습니다.");
-        navTo('home');
-    } else if (enemyHp <= 0) {
-        alert("VICTORY! - 승리하셨습니다!");
-        navTo('home');
-    }
+    // 3. 최종 승패 확인 후 라운드 초기화
+    checkGameOver();
+    resetForNextRound();
 }
 
 function updateHpUI(elementId, hp) {
