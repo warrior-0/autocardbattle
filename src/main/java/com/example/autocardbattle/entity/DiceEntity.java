@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "dice_master") // 모든 유저가 공통으로 사용하는 주사위 정보
+@Table(name = "dice_master") 
 @Getter @Setter
 @NoArgsConstructor
 public class DiceEntity {
@@ -15,15 +15,19 @@ public class DiceEntity {
     private Long id;
 
     @Column(unique = true, nullable = false)
-    private String diceType; // FIRE, WIND, SWORD, ELECTRIC, SNIPER
+    private String diceType; 
 
     private String name;
     private int damage;
+
+    // 'range'는 MySQL 예약어이므로 컬럼 이름을 'dice_range'로 지정합니다.
+    @Column(name = "dice_range") 
     private int range;
-    private double aps; // 초당 공격 횟수 (Attacks Per Second)
+
+    private double aps; 
     
     @Column(length = 500)
     private String description;
 
-    private String color; // UI 표시용 색상 코드
+    private String color; 
 }
