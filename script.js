@@ -242,7 +242,7 @@ function showHome() {
 // 메뉴 이동 함수
 function navTo(page) {
     // 1. 모든 게임 섹션들을 리스트로 만듭니다.
-    const allSections = ['auth-form', 'home-screen', 'editor-section', 'deck-section'];
+    const allSections = ['auth-form', 'home-screen', 'editor-section', 'deck-section', 'battle-header', 'battle-hand-section'];
     
     // 2. 일단 모든 섹션을 보이지 않게 처리합니다.
     allSections.forEach(id => {
@@ -262,7 +262,14 @@ function navTo(page) {
 
         if (battleHeader) battleHeader.style.display = 'flex';
         if (battleHand) battleHand.style.display = 'block';
-        if (editorSection) editorSection.style.display = 'block';
+        if (editorSection) {
+            editorSection.style.display = 'block';
+            // 전투 모드일 때는 에디터 전용 버튼들을 숨깁니다.
+            const palette = document.querySelector('.palette');
+            const actions = document.querySelector('.actions');
+            if (palette) palette.style.display = 'none';
+            if (actions) actions.style.display = 'none';
+        }
 
         startMatch();
     } 
