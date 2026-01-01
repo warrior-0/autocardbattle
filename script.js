@@ -261,7 +261,6 @@ function showHome() {
 }
 
 // 메뉴 이동 함수
-// 메뉴 이동 함수
 function navTo(page) {
     // 1. 제어해야 할 모든 섹션과 UI 요소를 포함합니다.
     const allSections = [
@@ -458,11 +457,17 @@ let currentRoomId = null;
 async function startMatch() {
     if (!currentUser) return alert("로그인이 필요합니다.");
 
-    // 1. 매칭 중 오버레이 표시
+    // 1. [핵심] 다른 어떤 작업보다 '상대를 찾는 중' 오버레이를 먼저 띄웁니다.
     const overlay = document.getElementById('matching-overlay');
-    if (overlay) overlay.style.display = 'flex';
+    if (overlay) {
+        overlay.style.display = 'flex';
+    }
+
+    // 브라우저가 UI를 그릴 시간을 아주 잠깐(0.1초) 줍니다.
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     try {
+        // 2. 그 다음 서버에 매칭을 요청합니다.
         const res = await fetch(`${SERVER_URL}/api/battle/match?userUid=${currentUser.firebaseUid}`, {
             method: 'POST'
         });
@@ -470,15 +475,13 @@ async function startMatch() {
         if (res.status === 200) {
             const data = await res.json();
             currentRoomId = data.roomId;
-            console.log("매칭 성공! 방 ID:", currentRoomId);
             
-            // 2. 매칭 성공 시 오버레이 숨기기
+            // 매칭 성공 시 오버레이 숨기기
             if (overlay) overlay.style.display = 'none';
 
-            // 웹소켓 연결 및 데이터 로드 진행
+            // 이후 로직 진행 (웹소켓 연결 및 맵 데이터 로드)
             connectWebSocket();
             
-            // 서버에서 맵 정보 등을 가져와 화면 전환
             const startRes = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -486,19 +489,24 @@ async function startMatch() {
             });
             const startData = await startRes.json();
             
-            loadMapToGrid(startData.mapData[0].mapData);
+            // [주의] data 구조에 맞춰서 맵 데이터 로드
+            if (startData.mapData && startData.mapData.length > 0) {
+                loadMapToGrid(startData.mapData[0].mapData);
+            }
+            
             myHand = startData.hand;
             currentTurn = 1;
-            
             navTo('battle'); 
             renderHand();
+
         } else if (res.status === 202) {
-            // 아직 매칭 중이면 오버레이를 유지한 채 재시도
+            // 아직 매칭 중이면 5초 뒤에 이 함수를 다시 실행
+            // 이때 오버레이는 이미 켜져 있으므로 그대로 유지됩니다.
             setTimeout(startMatch, 5000);
         }
     } catch (err) {
         console.error("매칭 요청 오류:", err);
-        if (overlay) overlay.style.display = 'none'; // 에러 발생 시 닫기
+        if (overlay) overlay.style.display = 'none'; // 에러 시에는 가려줌
     }
 }
 
