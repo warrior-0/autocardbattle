@@ -398,47 +398,61 @@ async function saveUserDeck() {
 }
 
 // 전투 매칭 시작 (웹소켓 연결 후 방에 입장)
+let currentRoomId = null;
+
 async function startMatch() {
-    if (!stompClient || !stompClient.connected) {
-        alert("서버와 연결 중입니다. 잠시만 기다려주세요.");
-        connectWebSocket();
-        return;
+    if (!currentUser) return alert("로그인이 필요합니다.");
+
+    // 1. 서버에 매칭 요청 (성공할 때까지 반복 확인하거나 서버가 신호를 줄 때까지 대기)
+    try {
+        const res = await fetch(`${SERVER_URL}/api/battle/match?userUid=${currentUser.firebaseUid}`, {
+            method: 'POST'
+        });
+
+        if (res.status === 200) {
+            const data = await res.json();
+            currentRoomId = data.roomId; // 서버에서 할당받은 방 ID 저장
+            console.log("매칭 성공! 방 ID:", currentRoomId);
+            
+            // 2. 방 ID를 가지고 웹소켓 연결 및 게임 시작
+            connectWebSocket(); 
+            navTo('battle_screen'); // 실제 배틀 화면으로 이동
+        } else if (res.status === 202) {
+            setTimeout(startMatch, 2000); // 2초 뒤 재시도
+        }
+    } catch (err) {
+        console.error("매칭 요청 오류:", err);
     }
-
-    // 서버에 매칭 요청 (이건 처음에만 fetch로 보낼 수도 있고, 웹소켓으로 보낼 수도 있습니다)
-    // 여기서는 매칭 시작 알림을 서버로 보냅니다.
-    stompClient.send("/app/battle/ready", {}, JSON.stringify({
-        sender: currentUser.firebaseUid,
-        deck: currentUser.selectedDeck // 유저가 저장한 덱 전송
-    }));
-
-    console.log("매칭 대기 중...");
 }
 
-// 주사위 배치 클릭 시 (웹소켓으로 전송)
+function connectWebSocket() {
+    if (!currentRoomId) return;
+
+    const socket = new SockJS(`${SERVER_URL}/ws`);
+    stompClient = Stomp.over(socket);
+
+    stompClient.connect({}, function (frame) {
+        // 내 방 ID 전용 채널만 구독하여 다른 방 유저와 격리
+        stompClient.subscribe(`/topic/battle/${currentRoomId}`, function (message) {
+            const data = JSON.parse(message.body);
+            handleBattleMessage(data);
+        });
+    });
+}
+
 function onTileClickForBattle(x, y) {
-    if (currentTurn > 3) return;
-    if (!selectedDiceFromHand) return alert("배치할 주사위를 먼저 선택하세요!");
+    if (!currentRoomId) return;
 
-    // 1. 내 화면에 일단 임시 표시 (반투명하게)
-    const tile = document.getElementById(`tile-${x}-${y}`);
-    tile.innerText = "대기 중..."; 
-
-    // 2. 서버로 배치 정보 전송 (REST fetch 대신 WebSocket send)
     const payload = {
         type: "PLACE",
         sender: currentUser.firebaseUid,
-        x: x,
-        y: y,
+        x: x, y: y,
         diceType: selectedDiceFromHand,
         turn: currentTurn
     };
 
-    stompClient.send("/app/battle/place", {}, JSON.stringify(payload));
-    
-    // 3. 내 손패 선택 해제 (중복 클릭 방지)
-    selectedDiceFromHand = null;
-    document.querySelectorAll('.hand-card').forEach(c => c.classList.remove('selected'));
+    // 현재 방 ID 경로로 메시지 전송
+    stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
 }
 
 // 서버에서 오는 실시간 메시지 처리기 (handleBattleMessage 보완)
