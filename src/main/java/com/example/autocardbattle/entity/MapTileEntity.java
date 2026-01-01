@@ -14,14 +14,19 @@ public class MapTileEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private int x; // 0~7 (가로)
-    private int y; // 0~7 (세로)
+    private String mapId;    // 유저 ID 대신 맵 세트(64칸)를 구분하는 고유 ID
+    
+    @Column(columnDefinition = "TEXT")
+    private String mapHash;  // 맵의 중복 여부를 가리는 배치 데이터
 
-    private String tileType; // "WALL"(벽), "BUFF"(강화), "EMPTY"(빈칸) 등
+    private int x; 
+    private int y; 
+    private String tileType; 
 
-    // 생성자: 좌표와 타입을 쉽게 설정하기 위함
-    public MapTileEntity(String uid, int x, int y, String type) {
-        this.firebaseUid = uid;
+    // 수정된 생성자
+    public MapTileEntity(String mapId, String mapHash, int x, int y, String type) {
+        this.mapId = mapId;
+        this.mapHash = mapHash;
         this.x = x;
         this.y = y;
         this.tileType = type;
