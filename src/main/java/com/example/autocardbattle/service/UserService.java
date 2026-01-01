@@ -1,8 +1,6 @@
 package com.example.autocardbattle.service;
 
-import com.example.autocardbattle.entity.InventoryEntity;
 import com.example.autocardbattle.entity.UserEntity;
-import com.example.autocardbattle.repository.InventoryRepository;
 import com.example.autocardbattle.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -25,11 +23,6 @@ public class UserService {
         user.setFirebaseUid(uid);
         user.setUsername(username);
         userRepository.save(user);
-
-        // 3. 신규 가입 보상: [평타] 스킬 1개 지급
-        InventoryEntity defaultSkill = new InventoryEntity(uid, "평타");
-        
-        inventoryRepository.save(defaultSkill);
 
         return user;
     }
