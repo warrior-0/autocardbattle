@@ -5,7 +5,6 @@ import com.example.autocardbattle.repository.MapRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,36 +13,30 @@ public class MapService {
     @Autowired private MapRepository mapRepository;
 
     @Transactional
-    public void saveSymmetricMap(String uid, List<MapTileEntity> halfTiles) {
-        // 1. 규칙 검사: 내 진영(4x8 중 타일이 배치된 칸)이 16칸을 넘는지 확인
-        long placementCount = halfTiles.stream()
-                .filter(t -> !t.getTileType().equals("EMPTY"))
-                .count();
-
-        if (placementCount > 16) {
-            throw new RuntimeException("배치 가능한 타일 수는 최대 16칸입니다.");
-        }
-
-        // 2. 기존 맵 삭제 (새로운 설계를 적용하기 위해 초기화)
+    public void saveMirrorSwapMap(String uid, List<MapTileEntity> leftSideTiles) {
+        // 1. 기존 유저 맵 삭제
         mapRepository.deleteByFirebaseUid(uid);
 
         List<MapTileEntity> fullMap = new ArrayList<>();
 
-        for (MapTileEntity tile : halfTiles) {
-            // [왼쪽 영역] 유저가 직접 설계한 4x8 칸 (x: 0~3)
+        for (MapTileEntity tile : leftSideTiles) {
+            // [왼쪽 4x8] 원본 데이터 저장
             fullMap.add(new MapTileEntity(uid, tile.getX(), tile.getY(), tile.getTileType()));
 
-            // [오른쪽 영역] 자동 대칭 복사 (x: 7-x 로 거울 반사)
-            // 예: 0번 칸에 벽을 놓으면 7번 칸에도 벽 생성 / 3번 칸에 놓으면 4번 칸에 생성
-            int symmetricX = 7 - tile.getX();
-            fullMap.add(new MapTileEntity(uid, symmetricX, tile.getY(), tile.getTileType()));
+            // [오른쪽 4x8] 좌우 반전(7-x) 및 타일 치환(Swap)
+            int mirrorX = 7 - tile.getX();
+            String swapType = tile.getTileType();
+
+            // 기획대로 내 발판은 상대의 적 발판으로, 내 적 발판은 상대의 내 발판으로 변경
+            if ("MY_TILE".equals(swapType)) {
+                swapType = "ENEMY_TILE";
+            } else if ("ENEMY_TILE".equals(swapType)) {
+                swapType = "MY_TILE";
+            }
+            // WALL 등은 그대로 복사
+
+            fullMap.add(new MapTileEntity(uid, mirrorX, tile.getY(), swapType));
         }
-
-        // 3. 전체 8x8 데이터(총 64칸 정보) 저장
         mapRepository.saveAll(fullMap);
-    }
-
-    public List<MapTileEntity> getMap(String uid) {
-        return mapRepository.findByFirebaseUid(uid);
     }
 }
