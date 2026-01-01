@@ -33,6 +33,11 @@ public class BattleController {
         return ResponseEntity.ok("매칭 취소 완료");
     }
 
+    //유저 룸 반환하기
+    public static Map<String, String> getUserRooms() {
+        return userRooms;
+    }
+    
     //게임이 종료된 후 방 데이터 삭제
     public static void removeRoomData(String roomId) {
         if (roomId != null) {
