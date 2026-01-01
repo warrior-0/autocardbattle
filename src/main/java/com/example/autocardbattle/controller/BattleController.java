@@ -33,6 +33,13 @@ public class BattleController {
         return ResponseEntity.ok("매칭 취소 완료");
     }
 
+    //게임이 종료된 후 방 데이터 삭제
+    public static void removeRoomData(String roomId) {
+        if (roomId != null) {
+            roomMaps.remove(roomId); // 해당 방의 맵 데이터 삭제
+            userRooms.values().removeIf(id -> id.equals(roomId));
+        }
+    }
     @PostMapping("/match")
     public ResponseEntity<?> requestMatch(@RequestParam String userUid) {
         synchronized (matchingQueue) {
