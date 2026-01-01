@@ -519,18 +519,28 @@ function cancelMatch() {
     navTo('home');
 }
 
+// 웹소켓 연
 function connectWebSocket() {
-    if (!currentRoomId) return;
+    if (!currentRoomId || !currentUser) return;
 
-    const socket = new SockJS(`${SERVER_URL}/ws`);
+    // 연결 시 UID를 쿼리 파라미터로 전달
+    const socket = new SockJS(`${SERVER_URL}/ws?userUid=${currentUser.firebaseUid}`);
     stompClient = Stomp.over(socket);
 
     stompClient.connect({}, function (frame) {
-        // 내 방 ID 전용 채널만 구독하여 다른 방 유저와 격리
+        console.log("웹소켓 연결 성공");
+        
+        // 내 방 ID 채널 구독
         stompClient.subscribe(`/topic/battle/${currentRoomId}`, function (message) {
             const data = JSON.parse(message.body);
             handleBattleMessage(data);
         });
+
+        // [추가] 내가 연결되었다는 사실을 서버/상대에게 알림 (필요 시)
+        stompClient.send(`/app/battle/${currentRoomId}/ready`, {}, JSON.stringify({
+            type: "READY",
+            sender: currentUser.firebaseUid
+        }));
     });
 }
 
