@@ -7,7 +7,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 @Component // 스프링이 자동으로 찾아서 실행하게 해줍니다.
-public class DataInitializer implements CommandLineRunner {
+public class DataInitialize implements CommandLineRunner {
 
     @Autowired 
     private DiceRepository diceRepository;
