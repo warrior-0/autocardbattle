@@ -176,6 +176,53 @@ async function saveMap() {
     }
 }
 
+// script.js 수정 및 추가
+function showHome() {
+    // 모든 섹션 숨기기
+    document.getElementById('auth-form').style.display = 'none';
+    document.getElementById('editor-section').style.display = 'none';
+    // 홈 화면 보이기
+    document.getElementById('home-screen').style.display = 'block';
+    
+    const name = (currentUser && currentUser.username) ? currentUser.username : "무명용사";
+    document.getElementById('welcome-msg').innerText = `${name}님, 전장에 오신 것을 환영합니다!`;
+}
+
+// 메뉴 이동 함수
+function navTo(page) {
+    document.getElementById('home-screen').style.display = 'none';
+    
+    if (page === 'editor') {
+        document.getElementById('editor-section').style.display = 'block';
+        initMap(); // 에디터 초기화
+    } else if (page === 'battle') {
+        alert("전장 준비 중입니다! 주사위 시스템을 먼저 구축해볼까요?");
+    } else if (page === 'deck') {
+        alert("덱 구성 시스템 준비 중입니다.");
+    }
+}
+
+// handleServerLogin 성공 시 showHome 호출로 변경
+async function handleServerLogin(firebaseUser, providedNickname = null) {
+    try {
+        const response = await fetch(`${SERVER_URL}/api/user/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                uid: firebaseUser.uid, 
+                username: providedNickname 
+            })
+        });
+
+        if (response.ok) {
+            currentUser = await response.json();
+            showHome(); // 에디터 대신 홈으로 이동
+        }
+    } catch (error) {
+        console.error("서버 통신 실패:", error);
+    }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     //초기화 실행
     setupFirebase();
