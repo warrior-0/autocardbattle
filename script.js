@@ -454,10 +454,14 @@ async function saveUserDeck() {
 // 전투 매칭 시작 (웹소켓 연결 후 방에 입장)
 let currentRoomId = null;
 
+// [수정] startMatch 함수
 async function startMatch() {
     if (!currentUser) return alert("로그인이 필요합니다.");
 
-    // 1. 서버에 매칭 요청 (성공할 때까지 반복 확인하거나 서버가 신호를 줄 때까지 대기)
+    // 1. 매칭 중 오버레이 표시
+    const overlay = document.getElementById('matching-overlay');
+    if (overlay) overlay.style.display = 'flex';
+
     try {
         const res = await fetch(`${SERVER_URL}/api/battle/match?userUid=${currentUser.firebaseUid}`, {
             method: 'POST'
@@ -465,17 +469,36 @@ async function startMatch() {
 
         if (res.status === 200) {
             const data = await res.json();
-            currentRoomId = data.roomId; // 서버에서 할당받은 방 ID 저장
+            currentRoomId = data.roomId;
             console.log("매칭 성공! 방 ID:", currentRoomId);
             
-            // 2. 방 ID를 가지고 웹소켓 연결 및 게임 시작
-            connectWebSocket(); 
-            navTo('battle_screen'); // 실제 배틀 화면으로 이동
+            // 2. 매칭 성공 시 오버레이 숨기기
+            if (overlay) overlay.style.display = 'none';
+
+            // 웹소켓 연결 및 데이터 로드 진행
+            connectWebSocket();
+            
+            // 서버에서 맵 정보 등을 가져와 화면 전환
+            const startRes = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentUser.selectedDeck.split(","))
+            });
+            const startData = await startRes.json();
+            
+            loadMapToGrid(startData.mapData[0].mapData);
+            myHand = startData.hand;
+            currentTurn = 1;
+            
+            navTo('battle'); 
+            renderHand();
         } else if (res.status === 202) {
-            setTimeout(startMatch, 2000); // 2초 뒤 재시도
+            // 아직 매칭 중이면 오버레이를 유지한 채 재시도
+            setTimeout(startMatch, 5000);
         }
     } catch (err) {
         console.error("매칭 요청 오류:", err);
+        if (overlay) overlay.style.display = 'none'; // 에러 발생 시 닫기
     }
 }
 
