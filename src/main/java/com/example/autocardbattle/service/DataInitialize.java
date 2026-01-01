@@ -21,8 +21,6 @@ public class DataInitialize implements CommandLineRunner {
             saveDice("SWORD", "검 주사위", 80, 1, 0.8, "강력한 근접 일격", "#2c3e50");
             saveDice("ELECTRIC", "전기 주사위", 30, 2, 1.0, "주변 적 1명 전이 피해", "#f1c40f");
             saveDice("SNIPER", "저격 주사위", 25, 4, 0.7, "거리당 데미지 대폭 증가", "#27ae60");
-            
-            System.out.println("✅ 공통 주사위 5종 데이터 생성이 완료되었습니다.");
         }
     }
 
