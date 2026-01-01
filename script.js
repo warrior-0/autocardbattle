@@ -123,16 +123,45 @@ function handleLogout() {
 // 5. 맵 에디터 관련 로직 (기존 코드 유지)
 function initMap() {
     const gridElement = document.getElementById('map-grid');
-    if (!gridElement || gridElement.children.length > 0) return;
+    if (!gridElement) return;
+
+    // 1. [중요] 기존 UI와 데이터를 완전히 초기화합니다.
+    gridElement.innerHTML = ''; 
+    mapData = []; 
+
     for (let y = 0; y < GRID_SIZE; y++) {
         for (let x = 0; x < GRID_SIZE; x++) {
+            // UI 생성
             const tile = document.createElement('div');
             tile.classList.add('tile');
             tile.id = `tile-${x}-${y}`;
-            if (x < 4) tile.onclick = () => handleTileClick(x, y);
-            else tile.classList.add('symmetric-zone');
+            
+            // 왼쪽 4칸만 클릭 가능 (대칭 시스템 유지)
+            if (x < 4) {
+                tile.onclick = () => handleTileClick(x, y);
+            } else {
+                tile.classList.add('symmetric-zone');
+            }
+            
             gridElement.appendChild(tile);
+
+            // 2. [중요] 데이터 배열에 객체 추가
             mapData.push({ x, y, tileType: 'EMPTY' });
+        }
+    }
+}
+
+function updateTile(x, y, type) {
+    // 3. [핵심] find를 통해 정확한 객체를 찾아 업데이트
+    const tileObj = mapData.find(t => t.x === x && t.y === y);
+    if (tileObj) {
+        tileObj.tileType = type;
+        const el = document.getElementById(`tile-${x}-${y}`);
+        if (el) {
+            // 클래스 초기화 후 재설정
+            el.className = `tile ${type} ${x >= 4 ? 'symmetric-zone' : ''}`;
+            // 텍스트 표시
+            el.innerText = type === 'EMPTY' ? '' : (type === 'MY_TILE' ? '내 타일' : (type === 'ENEMY_TILE' ? '적 타일' : '벽'));
         }
     }
 }
@@ -145,14 +174,6 @@ function handleTileClick(x, y) {
     if (type === 'MY_TILE') symType = 'ENEMY_TILE';
     else if (type === 'ENEMY_TILE') symType = 'MY_TILE';
     updateTile(symX, y, symType);
-}
-
-function updateTile(x, y, type) {
-    const tileObj = mapData.find(t => t.x === x && t.y === y);
-    tileObj.tileType = type;
-    const el = document.getElementById(`tile-${x}-${y}`);
-    el.className = `tile ${type} ${x >= 4 ? 'symmetric-zone' : ''}`;
-    el.innerText = type === 'EMPTY' ? '' : (type === 'MY_TILE' ? '내꺼' : (type === 'ENEMY_TILE' ? '적꺼' : '벽'));
 }
 
 function selectType(type, e) {
