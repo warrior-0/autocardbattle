@@ -2,21 +2,35 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>맵 에디터</title>
+    <title>로그인</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-auth-compat.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>맵 에디터</h1>
-        <div class="palette">
-            <button class="tool-btn active" onclick="selectType('MY_TILE', event)">내 발판</button>
-            <button class="tool-btn" onclick="selectType('ENEMY_TILE', event)">적 발판</button>
-            <button class="tool-btn" onclick="selectType('WALL', event)">벽 설치</button>
-            <button class="tool-btn" onclick="selectType('EMPTY', event)">지우개</button>
+    <div id="auth-container" class="container">
+        <h1>Auto Card Battle</h1>
+        <div id="login-form">
+            <h2>로그인 / 회원가입</h2>
+            <p>게임을 시작하려면 로그인하세요.</p>
+            <button class="tool-btn active" onclick="handleLogin()" style="width: 100%; height: 50px;">
+                로그인
+            </button>
         </div>
-        <div id="map-grid" class="grid-container"></div>
-        <div class="actions">
-            <button onclick="saveMap()">맵 저장하기</button>
+
+        <div id="editor-section" style="display: none;">
+            <div id="user-display"></div>
+            <div class="palette">
+                <button class="tool-btn active" onclick="selectType('MY_TILE', event)">내 발판</button>
+                <button class="tool-btn" onclick="selectType('ENEMY_TILE', event)">적 발판</button>
+                <button class="tool-btn" onclick="selectType('WALL', event)">벽 설치</button>
+                <button class="tool-btn" onclick="selectType('EMPTY', event)">지우개</button>
+            </div>
+            <div id="map-grid" class="grid-container"></div>
+            <div class="actions">
+                <button onclick="saveMap()">맵 저장하기</button>
+                <button onclick="handleLogout()">로그아웃</button>
+            </div>
         </div>
     </div>
     <script src="script.js"></script>
