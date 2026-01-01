@@ -46,13 +46,26 @@ function selectType(type, e) {
 }
 
 async function saveMap() {
+    // 왼쪽 4x8 영역 데이터만 추출
     const halfMap = mapData.filter(t => t.x < 4);
-    await fetch(`/api/map/save?uid=player1`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(halfMap)
-    });
-    alert("저장 완료!");
+    
+    try {
+        const SERVER_URL = "https://autocardbattle.onrender.com";
+        const response = await fetch('/api/map/save', { // 깔끔하게 경로만 호출
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(halfMap)
+        });
+        
+        const result = await response.text();
+        if (response.ok) {
+            alert("성공: " + result);
+        } else {
+            alert("실패: " + result); // 중복 맵일 경우 메시지 출력
+        }
+    } catch (error) {
+        console.error("서버 연결 실패:", error);
+    }
 }
 
 initMap();
