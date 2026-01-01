@@ -370,21 +370,30 @@ function createDiceCard(dice, isSelected) {
 }
 
 // 덱을 DB에 저장
-async function saveUserDeck() {
+aasync function saveUserDeck() {
     if (selectedDice.length !== 5) return alert("주사위 5개를 모두 골라주세요!");
+
+    const deckString = selectedDice.join(","); // 저장할 덱 문자열
 
     const res = await fetch(`${SERVER_URL}/api/user/deck/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             uid: currentUser.firebaseUid,
-            deck: selectedDice.join(",")
+            deck: deckString
         })
     });
 
     if (res.ok) {
+        // [핵심] DB 저장 성공 후, 현재 메모리의 유저 정보도 업데이트해줍니다.
+        if (currentUser) {
+            currentUser.selectedDeck = deckString;
+        }
+        
         alert("✅ 나만의 덱이 저장되었습니다!");
-        navTo('home');
+        renderDeckUI();
+    } else {
+        alert("❌ 덱 저장에 실패했습니다.");
     }
 }
 
