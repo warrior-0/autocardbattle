@@ -290,6 +290,50 @@ async function handleServerLogin(firebaseUser, providedNickname = null) {
     }
 }
 
+//전투 로직
+let currentTurn = 1;
+let myHand = []; // 서버에서 받은 현재 배치 가능한 주사위 2개
+let myPlacements = []; // 내 배치 정보
+
+// 전투 매칭 시작
+async function startMatch() {
+    const myDeck = ["FIRE", "WIND", "SWORD", "ELECTRIC", "SNIPER"]; // 예시 덱
+    const res = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.uid}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(myDeck)
+    });
+    const data = await res.json();
+
+    loadMapToGrid(data.mapData); // 서버가 정해준 랜덤 맵 로드
+    myHand = data.hand;          // 서버가 정해준 첫 주사위 2개
+    currentTurn = data.turn;
+    renderHand();                // 내 손패 UI 그리기
+}
+
+// 주사위 배치 클릭 시
+function onTileClickForBattle(x, y) {
+    if (currentTurn > 3) return; // 배치 끝남
+    if (!selectedDiceFromHand) return; // 주사위 선택 안 함
+
+    const placement = { x, y, type: selectedDiceFromHand, turn: currentTurn };
+    
+    // 서버에 배치 정보 전송
+    fetch(`${SERVER_URL}/api/battle/place`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...placement, userDeck: myDeck })
+    }).then(res => res.json()).then(data => {
+        if (data.status === "REVEAL") {
+            startFight(); // 3턴 끝, 전투 시작!
+        } else {
+            myHand = data.hand; // 다음 턴 주사위 2개 교체
+            currentTurn = data.turn;
+            renderHand();
+        }
+    });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     //초기화 실행
     setupFirebase();
