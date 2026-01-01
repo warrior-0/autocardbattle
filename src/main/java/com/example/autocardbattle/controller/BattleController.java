@@ -24,6 +24,15 @@ public class BattleController {
     private static final Map<String, String> userRooms = new ConcurrentHashMap<>();
     private static final Map<String, List<MapTileEntity>> roomMaps = new ConcurrentHashMap<>();
 
+    @PostMapping("/cancel")
+    public ResponseEntity<?> cancelMatch(@RequestParam String userUid) {
+        synchronized (matchingQueue) {
+            matchingQueue.remove(userUid); // 대기열에서 제거
+            userRooms.remove(userUid);     // 할당된 방 정보가 있다면 제거
+        }
+        return ResponseEntity.ok("매칭 취소 완료");
+    }
+
     @PostMapping("/match")
     public ResponseEntity<?> requestMatch(@RequestParam String userUid) {
         synchronized (matchingQueue) {
