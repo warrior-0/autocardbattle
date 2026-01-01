@@ -470,6 +470,54 @@ function handleBattleMessage(data) {
     }
 }
 
+let myHp = 5;
+let enemyHp = 5;
+
+function handleBattleMessage(data) {
+    switch(data.type) {
+        case "WAIT_OPPONENT":
+            showLoadingStatus("상대방의 배치를 기다리는 중...");
+            break;
+
+        case "TURN_PROGRESS":
+            currentTurn = data.turn;
+            renderHand(); // 다음 주사위 뽑기
+            alert(`${currentTurn}턴 배치를 시작하세요!`);
+            break;
+
+        case "REVEAL":
+            alert("3턴 종료! 전장이 공개됩니다.");
+            renderFullMap(data.allPlacements); // 모든 주사위 공개
+            
+            // 전투 결과 처리 (서버에서 계산해서 보내준 결과값 사용)
+            applyDamage(data.loserUid); 
+            break;
+    }
+}
+
+function applyDamage(loserUid) {
+    if (loserUid === currentUser.firebaseUid) {
+        myHp--;
+        updateHpUI('my-hp', myHp);
+    } else {
+        enemyHp--;
+        updateHpUI('enemy-hp', enemyHp);
+    }
+
+    if (myHp <= 0) {
+        alert("GAME OVER - 패배하셨습니다.");
+        navTo('home');
+    } else if (enemyHp <= 0) {
+        alert("VICTORY! - 승리하셨습니다!");
+        navTo('home');
+    }
+}
+
+function updateHpUI(elementId, hp) {
+    const hpBar = document.getElementById(elementId);
+    hpBar.innerText = "❤️".repeat(hp) + "🖤".repeat(5 - hp);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     //초기화 실행
     setupFirebase();
