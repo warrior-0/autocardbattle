@@ -3,6 +3,8 @@ package com.example.autocardbattle.controller;
 import com.example.autocardbattle.entity.MapTileEntity;
 import com.example.autocardbattle.service.MapService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -12,20 +14,25 @@ import java.util.List;
 public class MapController {
     @Autowired private MapService mapService;
 
-    // 프론트엔드에서 4x8 리스트를 보내면 대칭으로 저장
+    // 1. 새로운 맵을 공용 풀에 업로드 (중복 체크 포함)
     @PostMapping("/save")
-    public String save(@RequestParam String uid, @RequestBody List<MapTileEntity> tiles) {
+    public ResponseEntity<String> upload(@RequestBody List<MapTileEntity> tiles) {
         try {
-            mapService.saveSymmetricMap(uid, tiles);
-            return "성공: 8x8 대칭 맵이 생성되었습니다.";
+            // [수정] 메서드명을 MapService에 맞춰 uploadNewMap으로 변경
+            mapService.uploadNewMap(tiles);
+            return ResponseEntity.ok("성공: 새로운 맵이 공유 풀에 등록되었습니다.");
+        } catch (RuntimeException e) {
+            // 중복된 맵일 경우 예외 메시지 반환
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         } catch (Exception e) {
-            return "실패: " + e.getMessage();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("오류가 발생했습니다.");
         }
     }
 
-    // 저장된 전체 맵 불러오기
-    @GetMapping("/load")
-    public List<MapTileEntity> load(@RequestParam String uid) {
-        return mapService.getMap(uid);
+    // 2. 대전 시작 시 랜덤으로 맵 하나 가져오기
+    @GetMapping("/battle-start")
+    public List<MapTileEntity> startBattle() {
+        // [수정] 존재하지 않는 getMap 대신 getRandomBattleMap 사용
+        return mapService.getRandomBattleMap();
     }
 }
