@@ -1,13 +1,12 @@
 package com.example.autocardbattle.entity;
 
-import com.example.autocardbattle.constant.DiceType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "dice")
+@Table(name = "dice_master") // 모든 유저가 공통으로 사용하는 주사위 정보
 @Getter @Setter
 @NoArgsConstructor
 public class DiceEntity {
@@ -15,24 +14,16 @@ public class DiceEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Enumerated(EnumType.STRING)
-    private DiceType type; // FIRE, WIND 등 (미리 만든 상수 연결)
+    @Column(unique = true, nullable = false)
+    private String diceType; // FIRE, WIND, SWORD, ELECTRIC, SNIPER
 
     private String name;
     private int damage;
     private int range;
-    private double aps;
+    private double aps; // 초당 공격 횟수 (Attacks Per Second)
     
-    @Column(name = "description")
-    private String desc;
+    @Column(length = 500)
+    private String description;
 
-    // 초기 데이터 생성을 위한 생성자
-    public DiceEntity(DiceType type) {
-        this.type = type;
-        this.name = type.getName();
-        this.damage = type.getDamage();
-        this.range = type.getRange();
-        this.aps = type.getAps();
-        this.desc = type.getDesc();
-    }
+    private String color; // UI 표시용 색상 코드
 }
