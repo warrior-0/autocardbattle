@@ -33,7 +33,7 @@ public class DataInitialize implements CommandLineRunner {
         d.setDamage(dmg);
         d.setRange(rng);
         d.setAps(aps);
-        d.setDesc(desc);
+        d.setDescription(desc);
         d.setColor(color);
         diceRepository.save(d);
     }
