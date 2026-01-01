@@ -215,16 +215,37 @@ function saveMap() {
     });
 }
 
+// script.js 내 loadMapToGrid 함수 수정
 function loadMapToGrid(fullMapString) {
-    // 쉼표를 기준으로 다시 64개의 배열로 쪼갬
+    if (!fullMapString) return;
+    
     const tiles = fullMapString.split(",");
+    const gridElement = document.getElementById('map-grid');
+    gridElement.innerHTML = ''; // 기존 그리드 삭제
+    mapData = []; // 데이터 초기화
 
-    for (let i = 0; i < tiles.length; i++) {
-        const x = i % 8;
-        const y = Math.floor(i / 8);
-        mapData[y][x] = tiles[i]; // "MY_TILE" 등이 그대로 들어감
-    }
-    renderGrid(); // 화면 갱신
+    tiles.forEach((type, i) => {
+        const x = i % GRID_SIZE;
+        const y = Math.floor(i / GRID_SIZE);
+        
+        // 1. 데이터 배열 업데이트
+        mapData.push({ x, y, tileType: type });
+
+        // 2. UI 생성
+        const tile = document.createElement('div');
+        tile.id = `tile-${x}-${y}`;
+        tile.className = `tile ${type}`; // DB에서 가져온 타입(MY_TILE 등) 적용
+        
+        // 텍스트 표시
+        if (type === 'MY_TILE') tile.innerText = "내 타일";
+        else if (type === 'ENEMY_TILE') tile.innerText = "적 타일";
+        else if (type === 'WALL') tile.innerText = "벽";
+
+        // 3. 전투 중이라면 배치 클릭 이벤트 연결
+        tile.onclick = () => onTileClickForBattle(x, y);
+        
+        gridElement.appendChild(tile);
+    });
 }
 
 // script.js 수정 및 추가
