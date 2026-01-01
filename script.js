@@ -183,31 +183,19 @@ function selectType(type, e) {
 }
 
 function saveMap() {
-    let tilesArray = [];
-    let hasempty = false; // 빈 곳의 위치를 추적합니다.
-
-    for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-            const tile = mapData[y][x];
-            
-            // 검사 조건 강화: undefined, null, "", "EMPTY" 모두 체크
-            if (!tile || tile === 'EMPTY' || tile.trim() === "") {
-                hasempty = true;
-            }
-            tilesArray.push(tile);
-        }
-    }
-
-    // 1. 빈 공간이 발견된 경우
-    if (hasempty) {
-        alert(`⚠️ 아직 채워지지 않은 칸이 ${emptyCoordinates.length}개 있습니다.\n확인 후 다시 시도해주세요!`);
+    // 1. mapData 배열에서 tileType만 추출
+    const tilesArray = mapData.map(t => t.tileType);
+    
+    // 2. 빈 공간('EMPTY')이 하나라도 있는지 단순 체크
+    if (tilesArray.includes('EMPTY')) {
+        alert("⚠️ 아직 비어있는 칸이 있습니다. 모든 칸을 채워주세요!");
         return;
     }
 
-    // 2. 모든 칸이 채워졌다면 저장 진행
+    // 3. 모든 칸이 채워졌다면 쉼표로 합치기
     const fullMapString = tilesArray.join(",");
     
-    // 서버 전송 로직...
+    // 4. 서버 전송
     fetch(`${SERVER_URL}/api/map/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -216,7 +204,14 @@ function saveMap() {
             creatorUid: currentUser.firebaseUid
         })
     }).then(res => {
-        if(res.ok) alert("✅ 전장이 성공적으로 저장되었습니다!");
+        if (res.ok) {
+            alert("✅ 전장이 성공적으로 저장되었습니다!");
+            navTo('home'); // 저장 후 홈 화면으로 이동
+        } else {
+            alert("❌ 저장 실패: 서버 오류가 발생했습니다.");
+        }
+    }).catch(err => {
+        console.error("통신 오류:", err);
     });
 }
 
