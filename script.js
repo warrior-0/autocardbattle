@@ -261,8 +261,9 @@ function showHome() {
 }
 
 // 메뉴 이동 함수
+// 메뉴 이동 함수
 function navTo(page) {
-    // 1. 모든 주요 섹션과 UI 요소 리스트
+    // 1. 제어해야 할 모든 섹션과 UI 요소를 포함합니다.
     const allSections = [
         'auth-form', 
         'home-screen', 
@@ -272,52 +273,50 @@ function navTo(page) {
         'battle-hand-section'
     ];
     
-    // 2. 일단 모든 요소를 숨김 처리
+    // 2. 모든 요소를 숨깁니다.
     allSections.forEach(id => {
         const element = document.getElementById(id);
         if (element) element.style.display = 'none';
     });
     
-    // 3. 페이지별 맞춤 화면 표시
+    // 3. 페이지별 맞춤 화면 설정
     if (page === 'editor') {
         document.getElementById('editor-section').style.display = 'block';
-        // 에디터일 때는 팔레트와 저장 버튼을 보여줌
+        // 에디터 도구 표시
         document.querySelector('.palette').style.display = 'flex';
         document.querySelector('.actions').style.display = 'block';
+        const h2 = document.querySelector('#editor-section h2');
+        if (h2) h2.innerText = "🏗️ 맵 빌더";
         initMap(); 
     } 
     else if (page === 'battle') {
-        // 배틀 UI 요소들 켜기
+        // 전투 전용 UI 표시
         document.getElementById('battle-header').style.display = 'flex';
         document.getElementById('battle-hand-section').style.display = 'block';
         
-        // 전장 그리드(editor-section)를 켜되, 에디터 도구들은 숨김
         const editorSection = document.getElementById('editor-section');
         if (editorSection) {
             editorSection.style.display = 'block';
-            // 🏗️ 맵 빌더 글자와 도구들을 숨기는 핵심 코드
-            const editorHeader = editorSection.querySelector('.editor-header h2');
-            if (editorHeader) editorHeader.innerText = "⚔️ 실시간 전장"; // 제목 변경
+            const h2 = editorSection.querySelector('h2');
+            if (h2) h2.innerText = "⚔️ 실시간 전장";
 
-            // [중요] 모든 타일의 클릭 이벤트를 '배치용'으로 변경 (편집 불가)
+            // [중요] 타일 클릭을 배치용으로 변경하여 편집 차단
             document.querySelectorAll('.tile').forEach(tile => {
-                const coords = tile.id.split('-'); // tile-x-y
+                const coords = tile.id.split('-');
                 const x = parseInt(coords[1]);
                 const y = parseInt(coords[2]);
                 tile.onclick = () => onTileClickForBattle(x, y);
             });
             
-            const palette = document.querySelector('.palette');
-            const actions = document.querySelector('.actions');
-            if (palette) palette.style.display = 'none'; // 도구 팔레트 숨김
-            if (actions) actions.style.display = 'none'; // 저장 버튼 숨김
+            // 에디터 도구 숨기기
+            document.querySelector('.palette').style.display = 'none';
+            document.querySelector('.actions').style.display = 'none';
         }
-
-        startMatch(); // 매칭 시작
+        startMatch(); 
     } 
     else if (page === 'deck') {
-        document.getElementById('deck-section').style.display = 'block'; 
-        showDeckEditor();
+        // ✅ 무한 루프 방지: 단순히 섹션만 보여줍니다.
+        document.getElementById('deck-section').style.display = 'block';
     } 
     else if (page === 'home') {
         document.getElementById('home-screen').style.display = 'block';
