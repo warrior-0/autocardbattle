@@ -69,3 +69,36 @@
     transform: scale(1.05);
     box-shadow: 0 0 10px rgba(52, 152, 219, 0.5);
 }
+
+/* 전투 관련 UI 스타일 */
+.battle-ui {
+    background: rgba(255, 255, 255, 0.9);
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+.hp-display {
+    font-size: 20px;
+    font-weight: bold;
+    color: #e74c3c;
+}
+
+.vs {
+    font-size: 24px;
+    font-style: italic;
+    color: #2c3e50;
+    margin: 0 20px;
+}
+
+/* 손패 주사위 강조 효과 */
+#battle-hand .dice-card {
+    border: 3px solid #3498db;
+    background: #ebf5fb;
+    transform: scale(1.1);
+}
+
+#battle-hand .dice-card:hover {
+    background: #d4e6f1;
+}
