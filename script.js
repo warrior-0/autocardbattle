@@ -290,6 +290,79 @@ async function handleServerLogin(firebaseUser, providedNickname = null) {
     }
 }
 
+//주사위 덱 로직
+// 덱 설정을 위한 변수
+let allDice = [];
+let selectedDice = [];
+
+// 주사위 덱 화면 보여주기
+async function showDeckEditor() {
+    navTo('deck'); // 덱 섹션으로 이동
+    const container = document.querySelector('.deck-placeholder');
+    container.innerHTML = "<h3>주사위를 5개 선택하세요</h3><div id='dice-list' class='dice-grid'></div>";
+
+    try {
+        // 1. DB에서 주사위 목록 가져오기
+        const res = await fetch(`${SERVER_URL}/api/dice/list`);
+        allDice = await res.json();
+
+        const listDiv = document.getElementById('dice-list');
+        allDice.forEach(dice => {
+            const card = document.createElement('div');
+            card.className = `dice-card ${selectedDice.includes(dice.diceType) ? 'selected' : ''}`;
+            card.style.borderColor = dice.color;
+            card.innerHTML = `
+                <h4>${dice.name}</h4>
+                <p>${dice.description}</p>
+                <span>공격력: ${dice.damage} | 사거리: ${dice.range}</span>
+            `;
+            card.onclick = () => toggleDiceSelection(dice.diceType, card);
+            listDiv.appendChild(card);
+        });
+
+        // 저장 버튼 추가
+        const saveBtn = document.createElement('button');
+        saveBtn.innerText = "덱 저장하기";
+        saveBtn.className = "save-btn";
+        saveBtn.onclick = saveUserDeck;
+        container.appendChild(saveBtn);
+
+    } catch (err) {
+        console.error("주사위 목록 로드 실패:", err);
+    }
+}
+
+// 주사위 선택/해제 로직
+function toggleDiceSelection(type, element) {
+    if (selectedDice.includes(type)) {
+        selectedDice = selectedDice.filter(d => d !== type);
+        element.classList.remove('selected');
+    } else {
+        if (selectedDice.length >= 5) return alert("최대 5개까지만 선택 가능합니다.");
+        selectedDice.push(type);
+        element.classList.add('selected');
+    }
+}
+
+// 덱을 DB에 저장
+async function saveUserDeck() {
+    if (selectedDice.length !== 5) return alert("주사위 5개를 모두 골라주세요!");
+
+    const res = await fetch(`${SERVER_URL}/api/user/deck/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            uid: currentUser.firebaseUid,
+            deck: selectedDice.join(",")
+        })
+    });
+
+    if (res.ok) {
+        alert("✅ 나만의 덱이 저장되었습니다!");
+        navTo('home');
+    }
+}
+
 //전투 로직
 let currentTurn = 1;
 let myHand = []; // 서버에서 받은 현재 배치 가능한 주사위 2개
