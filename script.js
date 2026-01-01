@@ -176,5 +176,7 @@ async function saveMap() {
     }
 }
 
-// 초기화 실행
-setupFirebase();
+window.addEventListener('DOMContentLoaded', () => {
+    //초기화 실행
+    setupFirebase();
+});
