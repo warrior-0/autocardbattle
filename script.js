@@ -291,57 +291,82 @@ async function handleServerLogin(firebaseUser, providedNickname = null) {
 }
 
 //주사위 덱 로직
-// 덱 설정을 위한 변수
-let allDice = [];
-let selectedDice = [];
+let allDice = [];      // DB에서 가져온 전체 주사위 정보
+let selectedDice = []; // 현재 유저가 선택한 덱 (타입명 리스트)
 
-// 주사위 덱 화면 보여주기
 async function showDeckEditor() {
-    navTo('deck'); // 덱 섹션으로 이동
-    const container = document.querySelector('.deck-placeholder');
-    container.innerHTML = "<h3>주사위를 5개 선택하세요</h3><div id='dice-list' class='dice-grid'></div>";
+    navTo('deck');
+    
+    // 1. 유저의 기존 덱 정보 초기화 (DB에서 불러온 값 활용)
+    if (currentUser && currentUser.selectedDeck) {
+        selectedDice = currentUser.selectedDeck.split(",").filter(d => d !== "");
+    } else {
+        selectedDice = [];
+    }
 
     try {
-        // 1. DB에서 주사위 목록 가져오기
+        // 2. 전체 주사위 목록 불러오기
         const res = await fetch(`${SERVER_URL}/api/dice/list`);
         allDice = await res.json();
 
-        const listDiv = document.getElementById('dice-list');
-        allDice.forEach(dice => {
-            const card = document.createElement('div');
-            card.className = `dice-card ${selectedDice.includes(dice.diceType) ? 'selected' : ''}`;
-            card.style.borderColor = dice.color;
-            card.innerHTML = `
-                <h4>${dice.name}</h4>
-                <p>${dice.description}</p>
-                <span>공격력: ${dice.damage} | 사거리: ${dice.range}</span>
-            `;
-            card.onclick = () => toggleDiceSelection(dice.diceType, card);
-            listDiv.appendChild(card);
-        });
-
-        // 저장 버튼 추가
-        const saveBtn = document.createElement('button');
-        saveBtn.innerText = "덱 저장하기";
-        saveBtn.className = "save-btn";
-        saveBtn.onclick = saveUserDeck;
-        container.appendChild(saveBtn);
-
+        renderDeckUI();
     } catch (err) {
-        console.error("주사위 목록 로드 실패:", err);
+        console.error("데이터 로드 실패:", err);
     }
 }
 
-// 주사위 선택/해제 로직
-function toggleDiceSelection(type, element) {
-    if (selectedDice.includes(type)) {
-        selectedDice = selectedDice.filter(d => d !== type);
-        element.classList.remove('selected');
-    } else {
-        if (selectedDice.length >= 5) return alert("최대 5개까지만 선택 가능합니다.");
-        selectedDice.push(type);
-        element.classList.add('selected');
-    }
+// 화면을 다시 그리는 핵심 함수
+function renderDeckUI() {
+    const currentDeckDiv = document.getElementById('current-deck');
+    const diceListDiv = document.getElementById('dice-list');
+    
+    currentDeckDiv.innerHTML = "";
+    diceListDiv.innerHTML = "";
+
+    // 1. 하단: 전체 주사위 목록 출력
+    allDice.forEach(dice => {
+        // 이미 덱에 포함된 주사위는 목록에서 비활성화 효과를 줄 수 있습니다.
+        const isSelected = selectedDice.includes(dice.diceType);
+        const card = createDiceCard(dice, isSelected);
+        
+        card.onclick = () => {
+            if (isSelected) return alert("이미 덱에 포함되어 있습니다.");
+            if (selectedDice.length >= 5) return alert("덱은 최대 5개까지입니다.");
+            
+            selectedDice.push(dice.diceType);
+            renderDeckUI(); // 다시 그리기
+        };
+        diceListDiv.appendChild(card);
+    });
+
+    // 2. 상단: 내 현재 덱 출력
+    selectedDice.forEach(type => {
+        const diceInfo = allDice.find(d => d.diceType === type);
+        if (diceInfo) {
+            const card = createDiceCard(diceInfo, false);
+            card.classList.add('in-deck');
+            card.onclick = () => {
+                // 클릭 시 덱에서 제거
+                selectedDice = selectedDice.filter(d => d !== type);
+                renderDeckUI(); // 다시 그리기
+            };
+            currentDeckDiv.appendChild(card);
+        }
+    });
+}
+
+// 주사위 카드 HTML 생성 도우미
+function createDiceCard(dice, isSelected) {
+    const card = document.createElement('div');
+    card.className = `dice-card ${isSelected ? 'disabled' : ''}`;
+    card.style.borderColor = dice.color;
+    card.innerHTML = `
+        <div class="dice-icon" style="color:${dice.color}">🎲</div>
+        <h4>${dice.name}</h4>
+        <p class="dice-desc">${dice.description}</p>
+        <div class="dice-stats">⚔️${dice.damage} 📏${dice.range}</div>
+    `;
+    return card;
 }
 
 // 덱을 DB에 저장
