@@ -474,25 +474,53 @@ let myHp = 5;
 let enemyHp = 5;
 
 function handleBattleMessage(data) {
-    switch(data.type) {
-        case "WAIT_OPPONENT":
-            showLoadingStatus("상대방의 배치를 기다리는 중...");
-            break;
-
-        case "TURN_PROGRESS":
-            currentTurn = data.turn;
-            renderHand(); // 다음 주사위 뽑기
-            alert(`${currentTurn}턴 배치를 시작하세요!`);
-            break;
-
-        case "REVEAL":
-            alert("3턴 종료! 전장이 공개됩니다.");
-            renderFullMap(data.allPlacements); // 모든 주사위 공개
+    if (data.type === "REVEAL") {
+        // 1. 서버가 보내준 전체 배치 데이터(누적분)를 순회
+        data.allPlacements.forEach(p => {
+            const tile = document.getElementById(`tile-${p.x}-${p.y}`);
             
-            // 전투 결과 처리 (서버에서 계산해서 보내준 결과값 사용)
-            applyDamage(data.loserUid); 
-            break;
+            // [수정] 맵 데이터에서 해당 좌표의 타일 타입을 찾습니다.
+            const mapInfo = mapData.find(m => m.x === p.x && m.y === p.y);
+            
+            if (tile && mapInfo) {
+                // 주사위 텍스트 설정 (타입명이 있다면 표시)
+                tile.innerText = getDiceEmoji(p.diceType); 
+                
+                // 타일 타입에 따른 색상 적용 (기본 맵 스타일 유지)
+                if (mapInfo.tileType === 'MY_TILE') {
+                    tile.style.backgroundColor = "#3498db"; // 내 진영 푸른색
+                    tile.style.color = "white";
+                } else if (mapInfo.tileType === 'ENEMY_TILE') {
+                    tile.style.backgroundColor = "#e74c3c"; // 적 진영 붉은색
+                    tile.style.color = "white";
+                }
+                
+                // 배치된 주사위라는 것을 알리기 위해 클래스 추가 (애니메이션 등 활용)
+                tile.classList.add('placed-dice');
+            }
+        });
+
+        applyDamage(data.loserUid);
+        currentTurn = 1;
+        
+        // 2. 다음 배치를 위해 선택 상태 초기화
+        selectedDiceFromHand = null;
+        renderHand(); 
+        
+        alert("전투 종료! 살아남은 주사위들이 다음 라운드에도 유지됩니다.");
     }
+}
+
+// 주사위 타입에 따른 이모지 반환 (선택 사항)
+function getDiceEmoji(type) {
+    const emojis = {
+        'FIRE': '🔥',
+        'WIND': '🌪️',
+        'ELECTRIC': '⚡',
+        'SWORD': '⚔️',
+        'SNIPER': '🎯'
+    };
+    return emojis[type] || "🎲";
 }
 
 function applyDamage(loserUid) {
