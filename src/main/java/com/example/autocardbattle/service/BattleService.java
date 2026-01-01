@@ -69,6 +69,9 @@ public class BattleService {
         state.readyUsers.clear();
         state.turn = 1; 
 
+        // [추가] 게임이 끝났으므로 서버 메모리에서 해당 방 정보 삭제
+        BattleController.removeRoomData(roomId);
+        
         return msg;
     }
 }
