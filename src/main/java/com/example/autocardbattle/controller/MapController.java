@@ -2,7 +2,9 @@ package com.example.autocardbattle.controller;
 
 import com.example.autocardbattle.entity.MapTileEntity;
 import com.example.autocardbattle.repository.MapRepository;
+import com.example.autocardbattle.service.MapService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.Map;
@@ -14,6 +16,9 @@ public class MapController {
 
     @Autowired
     private MapRepository mapRepository;
+
+    @Autowired
+    private MapService mapService;
 
     @PostMapping("/save")
     public ResponseEntity<?> saveMap(@RequestBody Map<String, String> request) {
