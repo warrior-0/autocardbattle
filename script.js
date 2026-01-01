@@ -500,6 +500,7 @@ async function startMatch() {
         cancelMatch();
     }
 }
+
 // 매칭 취소 함수
 let matchTimer = null;
 
@@ -530,6 +531,43 @@ function connectWebSocket() {
             const data = JSON.parse(message.body);
             handleBattleMessage(data);
         });
+    });
+}
+
+//주사위 보여지는거 관리
+let myHand = []; // 서버에서 받은 내 주사위 리스트
+let selectedDiceFromHand = null; // 내가 배치하려고 선택한 주사위
+
+// 서버에서 받은 손패(주사위 2개)를 화면에 그리는 함수
+function renderHand() {
+    const handDiv = document.getElementById('battle-hand'); // index.html의 손패 영역
+    if (!handDiv) return;
+
+    handDiv.innerHTML = ""; // 기존 손패 초기화
+
+    myHand.forEach(diceType => {
+        // 전체 주사위 데이터(allDice)에서 해당 타입의 정보를 찾음
+        const diceInfo = allDice.find(d => d.diceType === diceType);
+        
+        if (diceInfo) {
+            const card = document.createElement('div');
+            card.className = 'dice-card';
+            card.style.borderColor = diceInfo.color;
+            card.innerHTML = `
+                <div class="dice-icon" style="color:${diceInfo.color}">${getDiceEmoji(diceType)}</div>
+                <h4>${diceInfo.name}</h4>
+                <div class="dice-stats">공격:${diceInfo.damage} | 사거리:${diceInfo.range}</div>
+            `;
+
+            // 주사위 클릭 시 선택 효과
+            card.onclick = () => {
+                document.querySelectorAll('#battle-hand .dice-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                selectedDiceFromHand = diceType; // 배치할 주사위로 설정
+            };
+
+            handDiv.appendChild(card);
+        }
     });
 }
 
