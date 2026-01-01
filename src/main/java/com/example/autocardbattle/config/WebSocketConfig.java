@@ -3,6 +3,12 @@ package com.example.autocardbattle.config;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.*;
+import org.springframework.web.socket.server.support.HttpSessionHandshakeInterceptor;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.web.socket.WebSocketHandler;
+import org.springframework.http.server.ServletServerHttpRequest;
+import java.util.Map;
 
 @Configuration
 @EnableWebSocketMessageBroker
@@ -10,28 +16,20 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic"); // 메시지를 받을 때 (구독)
-        config.setApplicationDestinationPrefixes("/app"); // 메시지를 보낼 때
+        config.enableSimpleBroker("/topic");
+        config.setApplicationDestinationPrefixes("/app");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws") // 웹소켓 접속 주소: ws://.../ws
-                .setAllowedOriginPatterns("*")
-                .withSockJS(); // 낮은 버전 브라우저 지원
-    }
-    
-    @Override
-    public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns("*")
-                .addInterceptors(new HttpSessionHandshakeInterceptor() {
+                .addInterceptors(new HttpSessionHandshakeInterceptor() { // 인터셉터 로직
                     @Override
                     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response, 
                                                    WebSocketHandler wsHandler, Map<String, Object> attributes) throws Exception {
                         if (request instanceof ServletServerHttpRequest) {
                             ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) request;
-                            // URL 파라미터에서 userUid를 추출하여 웹소켓 세션에 저장
                             String userUid = servletRequest.getServletRequest().getParameter("userUid");
                             attributes.put("userUid", userUid);
                         }
@@ -40,4 +38,5 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 })
                 .withSockJS();
     }
+    // 기존에 중복으로 있던 registerStompEndpoints 메서드는 삭제하세요.
 }
