@@ -79,9 +79,19 @@
                 <button onclick="navTo('home')" class="back-btn">← 홈으로</button>
                 <h2>🎲 주사위 덱 설정</h2>
             </div>
-            <div class="deck-placeholder">
-                <p>보유 중인 주사위가 여기에 표시됩니다.</p>
-                </div>
+            
+            <div class="deck-container">
+                <h3>내 현재 덱 (클릭 시 제거)</h3>
+                <div id="current-deck" class="dice-grid"></div>
+                <button onclick="saveUserDeck()" class="save-btn">덱 확정 저장</button>
+            </div>
+        
+            <hr>
+        
+            <div class="dice-market">
+                <h3>전체 주사위 목록 (클릭 시 추가)</h3>
+                <div id="dice-list" class="dice-grid"></div>
+            </div>
         </div>
     </div>
 </body>
