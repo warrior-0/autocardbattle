@@ -1,6 +1,7 @@
 package com.example.autocardbattle.service;
 
 import com.example.autocardbattle.dto.BattleMessage;
+import com.example.autocardbattle.controller.BattleController;
 import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,7 +34,7 @@ public class BattleService {
                 msg.setTurn(state.turn);
                 return msg;
             } else {
-                return judgeWinner(state, msg);
+                return judgeWinner(state, msg, roomId);
             }
         } else {
             msg.setType("WAIT_OPPONENT");
@@ -41,7 +42,7 @@ public class BattleService {
         }
     }
 
-    private BattleMessage judgeWinner(GameState state, BattleMessage msg) {
+    private BattleMessage judgeWinner(GameState state, BattleMessage msg, String roomId) {
         msg.setType("REVEAL");
         
         List<BattleMessage> allPlacements = new ArrayList<>();
