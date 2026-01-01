@@ -2,11 +2,12 @@ const GRID_SIZE = 8;
 let mapData = []; 
 let selectedType = 'MY_TILE';
 let currentUser = null;
+let isSignupMode = false; // 기본값은 로그인 모드
 
-// 1. 서버 주소 설정 (Render 서버의 실제 External URL을 적어주세요)
+// 1. 서버 주소 설정 (Render 서버 주소)
 const SERVER_URL = "https://autocardbattle.onrender.com";
 
-// 2. 페이지 로드 시 Firebase 초기화 및 인증 상태 확인
+// 2. Firebase 초기화 및 설정
 async function setupFirebase() {
     try {
         const response = await fetch(`${SERVER_URL}/api/config/firebase`, {
@@ -15,39 +16,85 @@ async function setupFirebase() {
         const config = await response.json();
         firebase.initializeApp(config);
 
-        // 인증 상태 감시
+        // 인증 상태 확인
         firebase.auth().onAuthStateChanged((user) => {
             if (user) {
+                // 이미 로그인된 상태라면 서버 로그인 진행
                 handleServerLogin(user);
-            } else {
-                showLoginForm();
             }
         });
     } catch (error) {
-        console.error("서버 로딩 실패패", 버 로딩 실;
+        console.error("Firebase 로딩 실패:", error);
     }
 }
 
-// 3. 구글 로그인 실행
-async function handleLogin() {
-    const provider = new firebase.auth.GoogleAuthProvider();
+// 3. [에러 해결 핵심] 폼 전환 로직 (toggleAuthMode)
+// HTML의 onclick="toggleAuthMode(event)"와 이름이 정확히 일치해야 합니다.
+function toggleAuthMode(e) {
+    if (e) e.preventDefault();
+    isSignupMode = !isSignupMode;
+    
+    const title = document.getElementById('auth-title');
+    const btn = document.getElementById('main-auth-btn');
+    const nickGroup = document.getElementById('nickname-group');
+    const switchText = document.getElementById('auth-switch-text');
+
+    if (isSignupMode) {
+        title.innerText = "회원가입";
+        btn.innerText = "회원가입 하기";
+        nickGroup.style.display = "block";
+        switchText.innerHTML = '이미 계정이 있나요? <a href="#" onclick="toggleAuthMode(event)">로그인</a>';
+    } else {
+        title.innerText = "로그인";
+        btn.innerText = "로그인";
+        nickGroup.style.display = "none";
+        switchText.innerHTML = '계정이 없으신가요? <a href="#" onclick="toggleAuthMode(event)">회원가입</a>';
+    }
+}
+
+// 4. 통합 인증 실행 (로그인/회원가입 버튼 클릭 시)
+async function handleAuthAction() {
+    const email = document.getElementById('user-email').value;
+    const password = document.getElementById('user-password').value;
+    const nickname = document.getElementById('user-nickname').value;
+
+    if (!email || !password) return alert("이메일과 비밀번호를 입력하세요.");
+
     try {
-        await firebase.auth().signInWithPopup(provider);
+        if (isSignupMode) {
+            // 회원가입 모드
+            if (!nickname) return alert("닉네임을 입력하세요!");
+            const result = await firebase.auth().createUserWithEmailAndPassword(email, password);
+            
+            // 서버 DB에 닉네임과 UID 등록
+            const response = await fetch(`${SERVER_URL}/api/user/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: result.user.uid, username: nickname })
+            });
+
+            if (response.ok) {
+                alert("회원가입 성공! 로그인 해주세요.");
+                isSignupMode = false;
+                toggleAuthMode(); // 로그인 모드로 전환
+            }
+        } else {
+            // 로그인 모드
+            const result = await firebase.auth().signInWithEmailAndPassword(email, password);
+            handleServerLogin(result.user);
+        }
     } catch (error) {
-        alert("로그인에 실패했습니다: " + error.message);
+        alert("오류: " + error.message);
     }
 }
 
-// 4. 서버에 유저 정보 등록 및 에디터 진입
+// 서버 세션 로그인 처리
 async function handleServerLogin(firebaseUser) {
     try {
         const response = await fetch(`${SERVER_URL}/api/user/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                uid: firebaseUser.uid,
-                username: firebaseUser.displayName
-            })
+            body: JSON.stringify({ uid: firebaseUser.uid })
         });
 
         if (response.ok) {
@@ -55,21 +102,16 @@ async function handleServerLogin(firebaseUser) {
             showEditor();
         }
     } catch (error) {
-        console.error("서버 로그인 실패:", error);
+        console.error("서비 로그인 실패:", error);
     }
 }
 
-function showLoginForm() {
-    document.getElementById('login-form').style.display = 'block';
-    document.getElementById('editor-section').style.display = 'none';
-}
-
 function showEditor() {
-    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('auth-form').style.display = 'none';
     document.getElementById('editor-section').style.display = 'block';
     const userDisplay = document.getElementById('user-display');
-    if (userDisplay) userDisplay.innerText = `${currentUser.username}님, 전장을 설계하세요!`;
-    initMap(); // 로그인 성공 후에 맵을 생성함
+    if (userDisplay) userDisplay.innerText = `${currentUser.username}님 접속 중`;
+    initMap();
 }
 
 function handleLogout() {
@@ -78,22 +120,17 @@ function handleLogout() {
     });
 }
 
-// 5. 맵 에디터 로직
+// 5. 맵 에디터 관련 로직 (기존 코드 유지)
 function initMap() {
     const gridElement = document.getElementById('map-grid');
-    if (!gridElement || gridElement.children.length > 0) return; // 중복 생성 방지
-
-    mapData = [];
+    if (!gridElement || gridElement.children.length > 0) return;
     for (let y = 0; y < GRID_SIZE; y++) {
         for (let x = 0; x < GRID_SIZE; x++) {
             const tile = document.createElement('div');
             tile.classList.add('tile');
             tile.id = `tile-${x}-${y}`;
-            
-            // 왼쪽 4칸만 클릭 가능 (대칭 설계)
             if (x < 4) tile.onclick = () => handleTileClick(x, y);
             else tile.classList.add('symmetric-zone');
-            
             gridElement.appendChild(tile);
             mapData.push({ x, y, tileType: 'EMPTY' });
         }
@@ -103,13 +140,10 @@ function initMap() {
 function handleTileClick(x, y) {
     const type = selectedType;
     updateTile(x, y, type);
-
-    // 상대 영역 대칭 및 치환 (Mirror & Swap)
     const symX = 7 - x;
     let symType = type;
     if (type === 'MY_TILE') symType = 'ENEMY_TILE';
     else if (type === 'ENEMY_TILE') symType = 'MY_TILE';
-
     updateTile(symX, y, symType);
 }
 
@@ -118,13 +152,7 @@ function updateTile(x, y, type) {
     tileObj.tileType = type;
     const el = document.getElementById(`tile-${x}-${y}`);
     el.className = `tile ${type} ${x >= 4 ? 'symmetric-zone' : ''}`;
-    
-    // 타일 텍스트 표시
-    let text = '';
-    if (type === 'MY_TILE') text = '내꺼';
-    else if (type === 'ENEMY_TILE') text = '적꺼';
-    else if (type === 'WALL') text = '벽';
-    el.innerText = text;
+    el.innerText = type === 'EMPTY' ? '' : (type === 'MY_TILE' ? '내꺼' : (type === 'ENEMY_TILE' ? '적꺼' : '벽'));
 }
 
 function selectType(type, e) {
@@ -133,32 +161,20 @@ function selectType(type, e) {
     e.target.classList.add('active');
 }
 
-// 6. 맵 저장 로직 (중복 체크 응답 처리 포함)
 async function saveMap() {
-    if (!currentUser) {
-        alert("로그인이 필요합니다.");
-        return;
-    }
-
     const halfMap = mapData.filter(t => t.x < 4);
-    
     try {
         const response = await fetch(`${SERVER_URL}/api/map/save`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(halfMap)
         });
-        
         const result = await response.text();
-        if (response.ok) {
-            alert(result);
-        } else {
-            alert("저장 실패: " + result); // "이미 동일한 구조의 맵이 존재합니다." 등
-        }
+        alert(response.ok ? result : "저장 실패: " + result);
     } catch (error) {
-        alert("서버 연결에 실패했습니다.");
+        alert("서버 연결 실패");
     }
 }
 
-// 실행 시작
+// 초기화 실행
 setupFirebase();
