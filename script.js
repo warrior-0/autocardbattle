@@ -256,8 +256,15 @@ function navTo(page) {
         initMap(); // 에디터 초기화
     } 
     else if (page === 'battle') {
-        alert("⚔️ 전장 준비 중입니다! 주사위 시스템을 먼저 구축해볼까요?");
-        document.getElementById('home-screen').style.display = 'block'; // 다시 홈으로
+        const battleHeader = document.getElementById('battle-header');
+        const battleHand = document.getElementById('battle-hand-section');
+        const editorSection = document.getElementById('editor-section');
+
+        if (battleHeader) battleHeader.style.display = 'flex';
+        if (battleHand) battleHand.style.display = 'block';
+        if (editorSection) editorSection.style.display = 'block';
+
+        startMatch();
     } 
     else if (page === 'deck') {
         // 나중에 만들 덱 화면
