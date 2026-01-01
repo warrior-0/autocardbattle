@@ -364,7 +364,7 @@ function createDiceCard(dice, isSelected) {
         <div class="dice-icon" style="color:${dice.color}">🎲</div>
         <h4>${dice.name}</h4>
         <p class="dice-desc">${dice.description}</p>
-        <div class="dice-stats">공격력:${dice.damage} 사거리:${dice.range}</div>
+        <div class="dice-stats">공격력:${dice.damage} | 사거리:${dice.range}</div>
     `;
     return card;
 }
