@@ -162,39 +162,47 @@ function selectType(type, e) {
 }
 
 function saveMap() {
-    let mapHash = ""; 
+    let tilesArray = [];
     let hasEmpty = false;
 
-    // 2차원 배열을 순회하며 64글자 문자열 생성
+    // 1. 2차원 배열을 순회하며 데이터 수집
     for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
             const tile = mapData[y][x];
-            
             if (tile === 'EMPTY' || !tile) {
                 hasEmpty = true;
-                mapHash += "."; // 일단 기록은 하지만 나중에 거절용
-            } else if (tile === 'MY_TILE') mapHash += 'M';
-            else if (tile === 'ENEMY_TILE') mapHash += 'E';
-            else if (tile === 'WALL') mapHash += 'W';
+            }
+            tilesArray.push(tile); // "MY_TILE" 등을 그대로 저장
         }
     }
 
+    // 2. 빈 공간 검사
     if (hasEmpty) {
-        alert("⚠️ 모든 칸을 채워야 저장할 수 있습니다! (빈 공간 발견)");
+        alert("⚠️ 모든 칸을 채워야 저장할 수 있습니다!");
         return;
     }
 
-    // 서버로 mapHash만 전송
+    // 3. 쉼표로 이어 붙이기 (가독성 버전)
+    const fullMapString = tilesArray.join(",");
+
+    // 4. 서버 전송
     fetch(`${SERVER_URL}/api/map/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            mapHash: mapHash,
-            creatorUid: currentUser.firebaseUid
+            mapData: fullMapString, // 64개의 단어가 쉼표로 연결된 상태
+            creatorUid: currentUser.firebaseUid // 현재 로그인한 유저 UID
         })
     })
-    .then(res => res.ok ? alert("맵 저장 완료!") : alert("저장 실패"))
-    .catch(err => console.error(err));
+    .then(res => {
+        if (res.ok) {
+            alert("✅ 전장이 성공적으로 저장되었습니다!");
+            navTo('home'); // 저장 후 홈으로 이동
+        } else {
+            alert("❌ 저장 실패 (이미 존재하는 맵일 수 있습니다)");
+        }
+    })
+    .catch(err => console.error("통신 오류:", err));
 }
 
 // script.js 수정 및 추가
