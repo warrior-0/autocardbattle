@@ -205,6 +205,18 @@ function saveMap() {
     .catch(err => console.error("통신 오류:", err));
 }
 
+function loadMapToGrid(fullMapString) {
+    // 쉼표를 기준으로 다시 64개의 배열로 쪼갬
+    const tiles = fullMapString.split(",");
+
+    for (let i = 0; i < tiles.length; i++) {
+        const x = i % 8;
+        const y = Math.floor(i / 8);
+        mapData[y][x] = tiles[i]; // "MY_TILE" 등이 그대로 들어감
+    }
+    renderGrid(); // 화면 갱신
+}
+
 // script.js 수정 및 추가
 function showHome() {
     // 모든 섹션 숨기기
