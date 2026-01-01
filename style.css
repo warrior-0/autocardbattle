@@ -17,7 +17,7 @@
 .tile.WALL { background-color: #2d3436; color: white; }
 .symmetric-zone { opacity: 0.7; cursor: default; border-style: dashed; }
 
-//메뉴 디자인
+/*메뉴 디자인*/
 .menu-container {
     display: flex;
     gap: 20px;
@@ -48,7 +48,7 @@
     cursor: pointer;
 }
 
-//다이스 디자인
+/*다이스 디자인*/
 .dice-grid {
     display: flex;
     gap: 15px;
