@@ -277,6 +277,14 @@ function navTo(page) {
             // 🏗️ 맵 빌더 글자와 도구들을 숨기는 핵심 코드
             const editorHeader = editorSection.querySelector('.editor-header h2');
             if (editorHeader) editorHeader.innerText = "⚔️ 실시간 전장"; // 제목 변경
+
+            // [중요] 모든 타일의 클릭 이벤트를 '배치용'으로 변경 (편집 불가)
+            document.querySelectorAll('.tile').forEach(tile => {
+                const coords = tile.id.split('-'); // tile-x-y
+                const x = parseInt(coords[1]);
+                const y = parseInt(coords[2]);
+                tile.onclick = () => onTileClickForBattle(x, y);
+            });
             
             const palette = document.querySelector('.palette');
             const actions = document.querySelector('.actions');
