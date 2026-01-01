@@ -231,16 +231,30 @@ function showHome() {
 
 // 메뉴 이동 함수
 function navTo(page) {
-    document.getElementById('home-screen').style.display = 'none';
+    // 1. 모든 게임 섹션들을 리스트로 만듭니다.
+    const allSections = ['auth-form', 'home-screen', 'editor-section', 'deck-section'];
     
+    // 2. 일단 모든 섹션을 보이지 않게 처리합니다.
+    allSections.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) element.style.display = 'none';
+    });
+    
+    // 3. 사용자가 요청한 페이지(섹션)만 켭니다.
     if (page === 'editor') {
         document.getElementById('editor-section').style.display = 'block';
         initMap(); // 에디터 초기화
-    } else if (page === 'battle') {
-        alert("전장 준비 중입니다! 주사위 시스템을 먼저 구축해볼까요?");
-    } else if (page === 'deck') {
-        alert("덱 구성 시스템 준비 중입니다.");
-    } else if (page === 'home') {
+    } 
+    else if (page === 'battle') {
+        alert("⚔️ 전장 준비 중입니다! 주사위 시스템을 먼저 구축해볼까요?");
+        document.getElementById('home-screen').style.display = 'block'; // 다시 홈으로
+    } 
+    else if (page === 'deck') {
+        // 나중에 만들 덱 화면
+        document.getElementById('deck-section').style.display = 'block'; 
+        // alert("🎲 덱 구성 시스템 준비 중입니다.");
+    } 
+    else if (page === 'home') {
         document.getElementById('home-screen').style.display = 'block';
     }
 }
