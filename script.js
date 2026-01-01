@@ -370,7 +370,7 @@ function createDiceCard(dice, isSelected) {
 }
 
 // 덱을 DB에 저장
-aasync function saveUserDeck() {
+async function saveUserDeck() {
     if (selectedDice.length !== 5) return alert("주사위 5개를 모두 골라주세요!");
 
     const deckString = selectedDice.join(","); // 저장할 덱 문자열
@@ -383,7 +383,7 @@ aasync function saveUserDeck() {
             deck: deckString
         })
     });
-
+    
     if (res.ok) {
         // [핵심] DB 저장 성공 후, 현재 메모리의 유저 정보도 업데이트해줍니다.
         if (currentUser) {
