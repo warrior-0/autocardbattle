@@ -6,9 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import java.util.List;
 
 public interface MapRepository extends JpaRepository<MapTileEntity, Long> {
-    // 특정 해시값을 가진 맵이 이미 존재하는지 확인
-    boolean existsByMapHash(String mapHash);
-
-    @Query(value = "SELECT * FROM map_tiles WHERE map_id = (SELECT map_id FROM map_tiles GROUP BY map_id ORDER BY RAND() LIMIT 1)", nativeQuery = true)
+    // 맵 데이터 전체를 랜덤하게 하나 가져오기
+    @Query(value = "SELECT * FROM maps ORDER BY RAND() LIMIT 1", nativeQuery = true)
     List<MapTileEntity> findRandomMap();
 }
