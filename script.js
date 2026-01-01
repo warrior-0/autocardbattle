@@ -510,6 +510,14 @@ async function startMatch() {
     }
 }
 
+// 매칭 취소 함수
+function cancelMatch() {
+    if (matchTimer) clearTimeout(matchTimer); // 다음 재시도 중단
+    const overlay = document.getElementById('matching-overlay');
+    if (overlay) overlay.style.display = 'none'; // 오버레이 닫기
+    navTo('home'); // 홈으로 이동
+}
+
 function connectWebSocket() {
     if (!currentRoomId) return;
 
