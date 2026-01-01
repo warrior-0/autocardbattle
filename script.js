@@ -289,28 +289,6 @@ function navTo(page) {
         initMap(); 
     } 
     else if (page === 'battle') {
-        // 전투 전용 UI 표시
-        document.getElementById('battle-header').style.display = 'flex';
-        document.getElementById('battle-hand-section').style.display = 'block';
-        
-        const editorSection = document.getElementById('editor-section');
-        if (editorSection) {
-            editorSection.style.display = 'block';
-            const h2 = editorSection.querySelector('h2');
-            if (h2) h2.innerText = "⚔️ 실시간 전장";
-
-            // [중요] 타일 클릭을 배치용으로 변경하여 편집 차단
-            document.querySelectorAll('.tile').forEach(tile => {
-                const coords = tile.id.split('-');
-                const x = parseInt(coords[1]);
-                const y = parseInt(coords[2]);
-                tile.onclick = () => onTileClickForBattle(x, y);
-            });
-            
-            // 에디터 도구 숨기기
-            document.querySelector('.palette').style.display = 'none';
-            document.querySelector('.actions').style.display = 'none';
-        }
         startMatch(); 
     } 
     else if (page === 'deck') {
@@ -454,20 +432,14 @@ async function saveUserDeck() {
 let currentRoomId = null;
 
 // [수정] startMatch 함수
+// [수정] script.js 내 startMatch 함수
 async function startMatch() {
     if (!currentUser) return alert("로그인이 필요합니다.");
 
-    // 1. [핵심] 다른 어떤 작업보다 '상대를 찾는 중' 오버레이를 먼저 띄웁니다.
     const overlay = document.getElementById('matching-overlay');
-    if (overlay) {
-        overlay.style.display = 'flex';
-    }
-
-    // 브라우저가 UI를 그릴 시간을 아주 잠깐(0.1초) 줍니다.
-    await new Promise(resolve => setTimeout(resolve, 100));
+    if (overlay) overlay.style.display = 'flex';
 
     try {
-        // 2. 그 다음 서버에 매칭을 요청합니다.
         const res = await fetch(`${SERVER_URL}/api/battle/match?userUid=${currentUser.firebaseUid}`, {
             method: 'POST'
         });
@@ -476,12 +448,35 @@ async function startMatch() {
             const data = await res.json();
             currentRoomId = data.roomId;
             
-            // 매칭 성공 시 오버레이 숨기기
+            // ✅ 매칭 성공 시점에만 UI를 구성하고 보여줍니다.
             if (overlay) overlay.style.display = 'none';
+            if (matchTimer) clearTimeout(matchTimer);
 
-            // 이후 로직 진행 (웹소켓 연결 및 맵 데이터 로드)
-            connectWebSocket();
+            // 1. 전투 전용 UI 표시 (여기서 켭니다)
+            document.getElementById('battle-header').style.display = 'flex';
+            document.getElementById('battle-hand-section').style.display = 'block';
             
+            const editorSection = document.getElementById('editor-section');
+            if (editorSection) {
+                editorSection.style.display = 'block';
+                const h2 = editorSection.querySelector('h2');
+                if (h2) h2.innerText = "⚔️ 실시간 전장";
+
+                // 타일 클릭을 배치용으로 변경 (편집 차단)
+                document.querySelectorAll('.tile').forEach(tile => {
+                    const coords = tile.id.split('-');
+                    const x = parseInt(coords[1]);
+                    const y = parseInt(coords[2]);
+                    tile.onclick = () => onTileClickForBattle(x, y);
+                });
+                
+                // 에디터 도구 숨기기
+                document.querySelector('.palette').style.display = 'none';
+                document.querySelector('.actions').style.display = 'none';
+            }
+
+            // 2. 나머지 게임 데이터 로드 진행
+            connectWebSocket();
             const startRes = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -489,27 +484,22 @@ async function startMatch() {
             });
             const startData = await startRes.json();
             
-            // [주의] data 구조에 맞춰서 맵 데이터 로드
             if (startData.mapData && startData.mapData.length > 0) {
                 loadMapToGrid(startData.mapData[0].mapData);
             }
             
             myHand = startData.hand;
             currentTurn = 1;
-            navTo('battle'); 
             renderHand();
 
         } else if (res.status === 202) {
-            // 아직 매칭 중이면 5초 뒤에 이 함수를 다시 실행
-            // 이때 오버레이는 이미 켜져 있으므로 그대로 유지됩니다.
-            setTimeout(startMatch, 5000);
+            matchTimer = setTimeout(startMatch, 5000); 
         }
     } catch (err) {
-        console.error("매칭 요청 오류:", err);
-        if (overlay) overlay.style.display = 'none'; // 에러 시에는 가려줌
+        console.error("매칭 오류:", err);
+        cancelMatch();
     }
 }
-
 // 매칭 취소 함수
 let matchTimer = null;
 
