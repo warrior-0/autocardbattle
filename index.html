@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto Card Battle</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -25,8 +26,42 @@
             </div>
         </div>
 
+        <div id="home-screen" style="display: none;">
+            <div class="home-header">
+                <h1 id="welcome-msg">용사님, 환영합니다!</h1>
+                <p id="user-status-text">전투 준비를 마쳐주세요.</p>
+            </div>
+            
+            <div class="menu-container">
+                <div class="menu-card battle" onclick="navTo('battle')">
+                    <div class="icon">⚔️</div>
+                    <h2>게임 플레이</h2>
+                    <p>랜덤 전장으로 출격</p>
+                </div>
+
+                <div class="menu-card deck" onclick="navTo('deck')">
+                    <div class="icon">🎲</div>
+                    <h2>주사위 덱</h2>
+                    <p>나만의 조합 구성</p>
+                </div>
+
+                <div class="menu-card editor" onclick="navTo('editor')">
+                    <div class="icon">🏗️</div>
+                    <h2>맵 빌드</h2>
+                    <p>새로운 전장 설계</p>
+                </div>
+            </div>
+
+            <div class="home-footer">
+                <button onclick="handleLogout()" class="logout-btn">로그아웃</button>
+            </div>
+        </div>
+
         <div id="editor-section" style="display: none;">
-            <div id="user-display" style="margin-bottom: 10px; font-weight: bold;"></div>
+            <div class="editor-header">
+                <button onclick="navTo('home')" class="back-btn">← 홈으로</button>
+                <h2>🏗️ 맵 빌더</h2>
+            </div>
             <div class="palette">
                 <button class="tool-btn active" onclick="selectType('MY_TILE', event)">내 발판</button>
                 <button class="tool-btn" onclick="selectType('ENEMY_TILE', event)">적 발판</button>
@@ -35,9 +70,18 @@
             </div>
             <div id="map-grid" class="grid-container"></div>
             <div class="actions">
-                <button onclick="saveMap()">맵 저장하기</button>
-                <button onclick="handleLogout()" style="background-color: #ff7675;">로그아웃</button>
+                <button onclick="saveMap()" class="save-btn">맵 저장하기</button>
             </div>
+        </div>
+
+        <div id="deck-section" style="display: none;">
+            <div class="editor-header">
+                <button onclick="navTo('home')" class="back-btn">← 홈으로</button>
+                <h2>🎲 주사위 덱 설정</h2>
+            </div>
+            <div class="deck-placeholder">
+                <p>보유 중인 주사위가 여기에 표시됩니다.</p>
+                </div>
         </div>
     </div>
 </body>
