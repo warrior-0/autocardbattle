@@ -397,48 +397,77 @@ async function saveUserDeck() {
     }
 }
 
-//전투 로직
-let currentTurn = 1;
-let myHand = []; // 서버에서 받은 현재 배치 가능한 주사위 2개
-let myPlacements = []; // 내 배치 정보
-
-// 전투 매칭 시작
+// 전투 매칭 시작 (웹소켓 연결 후 방에 입장)
 async function startMatch() {
-    const myDeck = ["FIRE", "WIND", "SWORD", "ELECTRIC", "SNIPER"]; // 예시 덱
-    const res = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.uid}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(myDeck)
-    });
-    const data = await res.json();
+    if (!stompClient || !stompClient.connected) {
+        alert("서버와 연결 중입니다. 잠시만 기다려주세요.");
+        connectWebSocket();
+        return;
+    }
 
-    loadMapToGrid(data.mapData); // 서버가 정해준 랜덤 맵 로드
-    myHand = data.hand;          // 서버가 정해준 첫 주사위 2개
-    currentTurn = data.turn;
-    renderHand();                // 내 손패 UI 그리기
+    // 서버에 매칭 요청 (이건 처음에만 fetch로 보낼 수도 있고, 웹소켓으로 보낼 수도 있습니다)
+    // 여기서는 매칭 시작 알림을 서버로 보냅니다.
+    stompClient.send("/app/battle/ready", {}, JSON.stringify({
+        sender: currentUser.firebaseUid,
+        deck: currentUser.selectedDeck // 유저가 저장한 덱 전송
+    }));
+
+    console.log("매칭 대기 중...");
 }
 
-// 주사위 배치 클릭 시
+// 주사위 배치 클릭 시 (웹소켓으로 전송)
 function onTileClickForBattle(x, y) {
-    if (currentTurn > 3) return; // 배치 끝남
-    if (!selectedDiceFromHand) return; // 주사위 선택 안 함
+    if (currentTurn > 3) return;
+    if (!selectedDiceFromHand) return alert("배치할 주사위를 먼저 선택하세요!");
 
-    const placement = { x, y, type: selectedDiceFromHand, turn: currentTurn };
+    // 1. 내 화면에 일단 임시 표시 (반투명하게)
+    const tile = document.getElementById(`tile-${x}-${y}`);
+    tile.innerText = "대기 중..."; 
+
+    // 2. 서버로 배치 정보 전송 (REST fetch 대신 WebSocket send)
+    const payload = {
+        type: "PLACE",
+        sender: currentUser.firebaseUid,
+        x: x,
+        y: y,
+        diceType: selectedDiceFromHand,
+        turn: currentTurn
+    };
+
+    stompClient.send("/app/battle/place", {}, JSON.stringify(payload));
     
-    // 서버에 배치 정보 전송
-    fetch(`${SERVER_URL}/api/battle/place`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...placement, userDeck: myDeck })
-    }).then(res => res.json()).then(data => {
-        if (data.status === "REVEAL") {
-            startFight(); // 3턴 끝, 전투 시작!
-        } else {
-            myHand = data.hand; // 다음 턴 주사위 2개 교체
-            currentTurn = data.turn;
+    // 3. 내 손패 선택 해제 (중복 클릭 방지)
+    selectedDiceFromHand = null;
+    document.querySelectorAll('.hand-card').forEach(c => c.classList.remove('selected'));
+}
+
+// 서버에서 오는 실시간 메시지 처리기 (handleBattleMessage 보완)
+function handleBattleMessage(data) {
+    switch(data.type) {
+        case "MATCH_FOUND": // 매칭 성공 및 맵 정보 수신
+            loadMapToGrid(data.mapData);
+            myHand = data.hand;
+            currentTurn = 1;
             renderHand();
-        }
-    });
+            alert("상대를 찾았습니다! 배치를 시작하세요.");
+            break;
+
+        case "TURN_PROGRESS": // 양쪽 모두 배치 완료되어 다음 턴 진행
+            myHand = data.nextHand;
+            currentTurn = data.nextTurn;
+            renderHand();
+            alert(`${data.nextTurn}턴이 시작되었습니다.`);
+            break;
+
+        case "REVEAL": // 3턴 종료, 전체 전장 공개
+            renderFullMap(data.allPlacements); // 상대 주사위까지 다 그리기
+            startFight(); // 전투 애니메이션 시작
+            break;
+            
+        case "OPPONENT_READY": // 상대방이 배치를 마쳤다는 알림 (심리적 요소)
+            console.log("상대방이 배치를 완료하고 기다리고 있습니다.");
+            break;
+    }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
