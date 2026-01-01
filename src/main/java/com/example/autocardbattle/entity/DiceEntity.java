@@ -1,30 +1,38 @@
-package com.example.game.dice;
+package com.example.autocardbattle.entity;
 
-public enum DiceType {
-    FIRE("불", 40, 2, 0.5, "광역 데미지"),
-    WIND("바람", 15, 3, 2.0, "고속 공격"),
-    SWORD("검", 80, 1, 0.8, "강력 일격"),
-    ELECTRIC("전기", 30, 2, 1.0, "연쇄 피해"),
-    SNIPER("저격", 25, 4, 0.7, "거리 비례 보너스");
+import com.example.autocardbattle.constant.DiceType;
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-    private final String name;
-    private final int damage;
-    private final int range;
-    private final double aps;
-    private final String desc;
+@Entity
+@Table(name = "dice")
+@Getter @Setter
+@NoArgsConstructor
+public class DiceEntity {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    DiceType(String name, int damage, int range, double aps, String desc) {
-        this.name = name;
-        this.damage = damage;
-        this.range = range;
-        this.aps = aps;
-        this.desc = desc;
+    @Enumerated(EnumType.STRING)
+    private DiceType type; // FIRE, WIND 등 (미리 만든 상수 연결)
+
+    private String name;
+    private int damage;
+    private int range;
+    private double aps;
+    
+    @Column(name = "description")
+    private String desc;
+
+    // 초기 데이터 생성을 위한 생성자
+    public DiceEntity(DiceType type) {
+        this.type = type;
+        this.name = type.getName();
+        this.damage = type.getDamage();
+        this.range = type.getRange();
+        this.aps = type.getAps();
+        this.desc = type.getDesc();
     }
-
-    // JS로 데이터를 보낼 때 필요한 Getter들
-    public String getName() { return name; }
-    public int getDamage() { return damage; }
-    public int getRange() { return range; }
-    public double getAps() { return aps; }
-    public String getDesc() { return desc; }
 }
