@@ -302,7 +302,7 @@ public class BattleService {
                     .distinct()      // 중복 제거 (팀 개수 확인)
                     .count();
     
-                if (livingTeams <= 0) {
+                if (livingTeams <= 1) {
                     // 더 이상 싸울 상대가 없으므로 루프 종료
                     break; 
                 }
