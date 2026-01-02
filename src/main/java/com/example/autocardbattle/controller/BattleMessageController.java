@@ -14,19 +14,24 @@ public class BattleMessageController {
     @Autowired
     private BattleService battleService;
 
-    // 실시간으로 특정 유저나 방에 메시지를 보내기 위한 도구입니다.
     @Autowired
     private SimpMessageSendingOperations messagingTemplate;
 
     @MessageMapping("/battle/{roomId}/place")
     public void handlePlacement(@DestinationVariable String roomId, BattleMessage message) {
-        // 1. 서비스를 호출하여 비즈니스 로직(배치 저장, 턴 체크 등)을 처리합니다.
-        BattleMessage result = battleService.processBattle(roomId, message);
-
-        // 2. 결과가 null이 아닐 때만(TURN_PROGRESS, REVEAL 등) 방 전체에 메시지를 보냅니다.
-        // 유저가 그냥 주사위를 놓는 'PLACE' 단계에서는 서비스가 null을 반환하므로 상대에게 아무것도 전달되지 않습니다.
-        if (result != null) {
-            messagingTemplate.convertAndSend("/topic/battle/" + roomId, result);
+        // 1. PLACE 타입일 때: 한 명이 주사위를 놓으면 상대방도 알아야 하므로 방 전체에 브로드캐스팅합니다.
+        if ("PLACE".equals(message.getType())) {
+            messagingTemplate.convertAndSend("/topic/battle/" + roomId, message);
         }
+
+        // 2. 비즈니스 로직 처리 (배치 저장, COMPLETE 확인, 턴 전환 등)
+        // battleService.processBattle 안에서 개별 유저 전송(nextHand 등)까지 처리하게 하는 것이 가장 깔끔합니다.
+        battleService.processBattle(roomId, message);
+    }
+    
+    @MessageMapping("/battle/{roomId}/ready")
+    public void handleReady(@DestinationVariable String roomId, BattleMessage message) {
+        // 유저가 게임 방에 들어와서 준비되었을 때 처리
+        battleService.processBattle(roomId, message);
     }
 }
