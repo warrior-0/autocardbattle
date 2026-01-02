@@ -428,8 +428,7 @@ async function saveUserDeck() {
 // 전투 매칭 시작 (웹소켓 연결 후 방에 입장)
 let currentRoomId = null;
 
-// [수정] startMatch 함수
-// [수정] script.js 내 startMatch 함수
+// startMatch 함수
 async function startMatch() {
     if (!currentUser) return alert("로그인이 필요합니다.");
 
@@ -445,11 +444,13 @@ async function startMatch() {
             const data = await res.json();
             currentRoomId = data.roomId;
             
-            // ✅ 매칭 성공 시점에만 UI를 구성하고 보여줍니다.
             if (overlay) overlay.style.display = 'none';
             if (matchTimer) clearTimeout(matchTimer);
 
-            // 1. 전투 전용 UI 표시 (여기서 켭니다)
+            // ✅ 추가: 매칭 성공 시 홈 화면을 확실히 숨깁니다.
+            document.getElementById('home-screen').style.display = 'none';
+
+            // 1. 전투 전용 UI 표시
             document.getElementById('battle-header').style.display = 'flex';
             document.getElementById('battle-hand-section').style.display = 'block';
             
@@ -459,7 +460,6 @@ async function startMatch() {
                 const h2 = editorSection.querySelector('h2');
                 if (h2) h2.innerText = "⚔️ 실시간 전장";
 
-                // 타일 클릭을 배치용으로 변경 (편집 차단)
                 document.querySelectorAll('.tile').forEach(tile => {
                     const coords = tile.id.split('-');
                     const x = parseInt(coords[1]);
@@ -467,12 +467,11 @@ async function startMatch() {
                     tile.onclick = () => onTileClickForBattle(x, y);
                 });
                 
-                // 에디터 도구 숨기기
                 document.querySelector('.palette').style.display = 'none';
                 document.querySelector('.actions').style.display = 'none';
             }
 
-            // 2. 나머지 게임 데이터 로드 진행
+            // 2. 데이터 로드 및 맵 생성
             connectWebSocket();
             const startRes = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
                 method: 'POST',
@@ -482,7 +481,8 @@ async function startMatch() {
             const startData = await startRes.json();
             
             if (startData.mapData && startData.mapData.length > 0) {
-                loadMapToGrid(startData.mapData[0].mapData);
+                // ✅ 수정: 두 번째 인자로 true를 보내서 배틀 모드(글자 없음)로 로드합니다.
+                loadMapToGrid(startData.mapData[0].mapData, true);
             }
             
             myHand = startData.hand;
