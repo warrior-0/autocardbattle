@@ -703,6 +703,22 @@ function handleBattleMessage(data) {
     }
 }
 
+// 서버에 배치를 마쳤음을 알리는 확정 신호 함수
+function sendCompleteSignal() {
+    if (!stompClient || !currentRoomId) return;
+
+    // 서버(BattleService)에 COMPLETE 타입으로 메시지 전송
+    stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify({
+        type: "COMPLETE",
+        sender: currentUser.firebaseUid,
+        turn: currentTurn
+    }));
+    
+    // 추가 배치 방지를 위해 UI 숨김
+    document.getElementById('battle-hand-section').style.display = 'none';
+    console.log("이번 턴 배치를 확정했습니다. 상대방을 기다리는 중...");
+}
+
 // 타이머 표시
 let battleTimer = null;
 let timeLeft = 20;
