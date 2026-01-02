@@ -85,18 +85,15 @@ public class BattleController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body("매칭 대기 중...");
     }
 
-    // ✅ [수정] 전투 시작 API
-    // 이제 이 API는 맵 데이터만 제공하며, 실제 타이머 시작은 웹소켓 'READY' 신호 이후 서버가 쏘는 메시지에 의존합니다.
+    // ✅ [수정] startBattle: 이제 맵 데이터만 주는 역할로 축소됩니다. (핸드는 웹소켓으로 받음)
     @PostMapping("/start")
     public BattleResponse startBattle(@RequestParam String userUid, @RequestBody List<String> userDeck) {
         String roomId = userRooms.get(userUid);
-        
         List<MapTileEntity> randomMap = (roomId != null && roomMaps.containsKey(roomId)) 
                                         ? roomMaps.get(roomId) 
                                         : mapRepository.findRandomMap();
         
-        // 주의: 이 시점에서 hand를 바로 주지 않고 빈 리스트를 보내거나, 
-        // 클라이언트에서 웹소켓 'GAME_START'를 기다리도록 설계해야 합니다.
+        // 핸드는 빈 리스트로 보냄 (GAME_START 메시지로 따로 받을 것임)
         return new BattleResponse(randomMap, new ArrayList<>(), 1);
     }
 
