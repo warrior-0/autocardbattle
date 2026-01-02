@@ -145,6 +145,9 @@ public class BattleService {
 
         // 🔒 [중요] 동기화 블록 시작: 이 방(state)에 대한 처리는 한 번에 하나씩만!
         synchronized (state) {
+            if (msg.getTurn() != state.turn) {
+                return null;
+            }
             
             // 1. 유닛 배치 처리 (PLACE)
             if ("PLACE".equals(msg.getType())) {
