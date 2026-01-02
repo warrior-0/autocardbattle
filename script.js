@@ -578,8 +578,26 @@ function renderHand() {
     });
 }
 
+// [보완] onTileClickForBattle 함수
 function onTileClickForBattle(x, y) {
-    if (!currentRoomId) return;
+    // 1. 선택된 주사위가 있는지 확인
+    if (!selectedDiceFromHand) {
+        alert("배치할 주사위를 먼저 선택해주세요!");
+        return;
+    }
+
+    // 2. 웹소켓 연결 상태 확인
+    if (!stompClient || !stompClient.connected) {
+        alert("서버와 연결이 불안정합니다. 잠시만 기다려주세요.");
+        return;
+    }
+
+    // 3. 내 진영(왼쪽 x < 4)에만 배치 가능한지 체크 (데이터 기준)
+    const targetTile = mapData.find(t => t.x === x && t.y === y);
+    if (!targetTile || targetTile.tileType !== 'MY_TILE') {
+        alert("자신의 타일에만 주사위를 배치할 수 있습니다!");
+        return;
+    }
 
     const payload = {
         type: "PLACE",
@@ -589,8 +607,17 @@ function onTileClickForBattle(x, y) {
         turn: currentTurn
     };
 
-    // 현재 방 ID 경로로 메시지 전송
+    // 서버 전송
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
+    
+    // UI 피드백: 배치된 주사위 이모지 표시
+    const tileEl = document.getElementById(`tile-${x}-${y}`);
+    tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
+    tileEl.style.fontSize = "24px";
+    
+    // 선택 해제
+    selectedDiceFromHand = null;
+    document.querySelectorAll('#battle-hand .dice-card').forEach(c => c.classList.remove('selected'));
 }
 
 // 서버에서 오는 실시간 메시지 처리기 (handleBattleMessage 보완)
