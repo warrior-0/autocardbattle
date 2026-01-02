@@ -45,6 +45,22 @@ public class BattleService {
         }
     }
 
+    public static class SimUnit {
+        String uid; int x, y; String type; int hp; long nextAttackTime; DiceEntity stats;
+        SimUnit(BattleMessage p) {
+            this.uid = p.getSender(); this.x = p.getX(); this.y = p.getY(); this.type = p.getDiceType();
+            this.stats = statMap.get(this.type);
+            if (this.stats == null) {
+                // DB 데이터 누락 시 기본값 (방어 코드)
+                this.stats = new DiceEntity(); 
+                this.stats.setHp(100); this.stats.setDamage(10); 
+                this.stats.setRange(1); this.stats.setAps(1.0);
+            }
+            this.hp = this.stats.getHp();
+            this.nextAttackTime = (long)(Math.random() * 500); 
+        }
+    }
+
     // 전략 패턴 인터페이스
     @FunctionalInterface
     interface AbilityHandler {
@@ -250,22 +266,6 @@ public class BattleService {
     // 시뮬레이션 내부 로직
     private SimulationResult simulateCombat(GameState state, Map<String, DiceEntity> statMap) {
         List<CombatLogEntry> logs = new ArrayList<>();
-        
-        class SimUnit {
-            String uid; int x, y; String type; int hp; long nextAttackTime; DiceEntity stats;
-            SimUnit(BattleMessage p) {
-                this.uid = p.getSender(); this.x = p.getX(); this.y = p.getY(); this.type = p.getDiceType();
-                this.stats = statMap.get(this.type);
-                if (this.stats == null) {
-                    // DB 데이터 누락 시 기본값 (방어 코드)
-                    this.stats = new DiceEntity(); 
-                    this.stats.setHp(100); this.stats.setDamage(10); 
-                    this.stats.setRange(1); this.stats.setAps(1.0);
-                }
-                this.hp = this.stats.getHp();
-                this.nextAttackTime = (long)(Math.random() * 500); 
-            }
-        }
 
         List<SimUnit> units = new ArrayList<>();
         state.placements.values().forEach(list -> list.forEach(p -> units.add(new SimUnit(p))));
