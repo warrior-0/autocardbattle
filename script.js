@@ -629,9 +629,9 @@ function onTileClickForBattle(x, y) {
     if (!tileInfo || !tileEl) return;
 
     // 4. 내 진영 체크 (MY_TILE 여부)
-    if (tileInfo.tileType !== 'MY_TILE') {
-        alert("자신의 타일에만 주사위를 배치할 수 있습니다!");
-        return;
+    if (!tileInfo || tileInfo.tileType !== 'MY_TILE') {
+            alert("자신의 타일에만 주사위를 배치할 수 있습니다!");
+            return;
     }
 
     // 5. ✅ 이전 라운드 주사위 혹은 현재 배치된 주사위 중복 체크
