@@ -683,6 +683,12 @@ function handleBattleMessage(data) {
             startNextRound(data.nextHand, data.turn);
             break;
 
+        case "OPPONENT_LEFT":
+            alert("상대방이 전장을 이탈했습니다! 부전승으로 게임을 종료합니다.");
+            if (battleTimer) clearInterval(battleTimer); // 타이머 정지
+            navTo('home'); // 홈으로 이동
+            break;
+
         case "REVEAL":
             if (battleTimer) clearInterval(battleTimer);
             
