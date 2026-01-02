@@ -528,24 +528,29 @@ function cancelMatch() {
     navTo('home');
 }
 
-// 웹소켓 연
+// 웹소켓 연결
 function connectWebSocket() {
     if (!currentRoomId || !currentUser) return;
 
-    // 연결 시 UID를 쿼리 파라미터로 전달
     const socket = new SockJS(`${SERVER_URL}/ws?userUid=${currentUser.firebaseUid}`);
     stompClient = Stomp.over(socket);
 
     stompClient.connect({}, function (frame) {
         console.log("웹소켓 연결 성공");
         
-        // 내 방 ID 채널 구독
+        // 1. 공통 채널 구독 (REVEAL, WAIT_OPPONENT 등 공유 메시지용)
         stompClient.subscribe(`/topic/battle/${currentRoomId}`, function (message) {
             const data = JSON.parse(message.body);
             handleBattleMessage(data);
         });
 
-        // [추가] 내가 연결되었다는 사실을 서버/상대에게 알림 (필요 시)
+        // 2. ✅ 추가: 내 전용 개인 채널 구독 (서버가 나에게만 보내는 TURN_PROGRESS 수신용)
+        stompClient.subscribe(`/topic/battle/${currentRoomId}/${currentUser.firebaseUid}`, function (message) {
+            const data = JSON.parse(message.body);
+            handleBattleMessage(data); // 수신한 다음 손패 데이터를 처리함
+        });
+
+        // 준비 완료 알림
         stompClient.send(`/app/battle/${currentRoomId}/ready`, {}, JSON.stringify({
             type: "READY",
             sender: currentUser.firebaseUid
