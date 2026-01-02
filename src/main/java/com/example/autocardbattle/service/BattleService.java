@@ -149,13 +149,23 @@ public class BattleService {
 
             if (!alreadyExists) {
                 userPlacements.add(msg);
-                
-                // 리필
-                List<String> nextHand = generateRandomHand(msg.getSender());
-                BattleMessage refillMsg = new BattleMessage();
-                refillMsg.setType("DICE_REFILL");
-                refillMsg.setNextHand(nextHand);
-                messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), refillMsg);
+                // ✅ [핵심 수정] 매 라운드(턴)마다 양쪽 유저가 배치를 마쳤는지 확인
+                // state.turn * 3: 1라운드면 3개, 2라운드면 총 6개, 3라운드면 총 9개...
+                long readyPlayers = state.placements.values().stream()
+                        .filter(list -> list.size() >= state.turn * 3) 
+                        .count();
+
+                // 양쪽(2명) 모두 이번 라운드 분량을 다 놓았다면 즉시 전투 시작
+                if (readyPlayers >= 2) {
+                    processBattleResult(state, roomId);
+                } else {
+                    // 아직 배치가 남은 유저에게만 실시간 리필 전송
+                    List<String> nextHand = generateRandomHand(msg.getSender());
+                    BattleMessage refillMsg = new BattleMessage();
+                    refillMsg.setType("DICE_REFILL");
+                    refillMsg.setNextHand(nextHand);
+                    messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), refillMsg);
+                }
             }
             return null;
         }
