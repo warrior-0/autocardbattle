@@ -647,7 +647,11 @@ function handleBattleMessage(data) {
         case "GAME_START":
             isSecondPlayer = (data.sender === "1"); 
             currentTurn = 1;
-            if (window.currentMapString) loadMapToGrid(window.currentMapString, true);
+            // ✅ [추가] 서버가 보내준 맵 데이터를 전역 변수에 저장하고 전장을 그립니다.
+            if (data.mapData) {
+                window.currentMapString = data.mapData;
+                loadMapToGrid(window.currentMapString, true); // true: 전투 모드로 그리기
+            }
             document.getElementById('map-grid').style.visibility = 'visible';
             
             myHand = data.nextHand;
