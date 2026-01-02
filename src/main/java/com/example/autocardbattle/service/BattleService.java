@@ -305,14 +305,22 @@ public class BattleService {
         if (readyUsers == null || readyUsers.size() < 2) return;
         List<String> users = new ArrayList<>(readyUsers);
 
+        // ✅ 방에 할당된 맵 데이터 가져오기
+        List<MapTileEntity> roomMap = BattleController.getRoomMap(roomId);
+        String mapDataStr = (roomMap != null && !roomMap.isEmpty()) ? roomMap.get(0).getMapData() : "";
+        
         for (int i = 0; i < users.size(); i++) {
             String uid = users.get(i);
             List<String> firstHand = generateRandomHand(uid);
+            
             BattleMessage startMsg = new BattleMessage();
             startMsg.setType("GAME_START");
             startMsg.setTurn(1);
             startMsg.setNextHand(firstHand);
-            startMsg.setSender(String.valueOf(i)); 
+            startMsg.setSender(String.valueOf(i));
+            
+            // ✅ [추가] 맵 데이터를 이때 동시에 전송합니다.
+            startMsg.setMapData(mapDataStr);
             messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + uid, startMsg);
         }
     }
