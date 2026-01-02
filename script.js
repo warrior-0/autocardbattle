@@ -739,17 +739,19 @@ function handleBattleMessage(data) {
 function playCombatLogs(logs) {
     logs.forEach(log => {
         setTimeout(() => {
-            // 투사체 발사
+            // ✅ [수정] 공격자 타일을 가져와서 현재 죽은 상태인지 확인
+            const attackerTile = document.getElementById(`tile-${log.attackerX}-${log.attackerY}`);
+            if (attackerTile && attackerTile.classList.contains('dead')) {
+                return; // 이미 죽었다면 공격(투사체 발사)을 취소합니다.
+            }
             animateProjectile(log.attackerX, log.attackerY, log.targetX, log.targetY, log.attackType);
             
-            // 타격 시점 (투사체 이동 0.3초 후)
             setTimeout(() => {
                 updateUnitHp(log.targetX, log.targetY, log.damage);
             }, 300);
         }, log.timeDelay);
     });
 }
-
 // 투사체 애니메이션 (좌표 계산)
 function animateProjectile(sx, sy, tx, ty, type) {
     const startTile = document.getElementById(`tile-${sx}-${sy}`);
