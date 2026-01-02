@@ -20,31 +20,38 @@ public class BattleController {
     
     // 대기열을 위한 큐 (유저 UID 저장)
     private static final Queue<String> matchingQueue = new LinkedList<>();
-    // 유저별 할당된 방 ID 및 해당 방의 맵 정보를 저장 (동시성 지원을 위해 ConcurrentHashMap 권장)
+    
+    // 유저별 할당된 방 ID 저장
     private static final Map<String, String> userRooms = new ConcurrentHashMap<>();
+    
+    // 방별 할당된 공통 맵 정보 저장
     private static final Map<String, List<MapTileEntity>> roomMaps = new ConcurrentHashMap<>();
+
+    // ✅ [추가] 방별 유저 준비 상태 관리 (싱크용)
+    // 방 ID를 키로 하고, 준비된 유저 UID들의 집합을 값으로 가집니다.
+    public static final Map<String, Set<String>> roomReadyStatus = new ConcurrentHashMap<>();
 
     @PostMapping("/cancel")
     public ResponseEntity<?> cancelMatch(@RequestParam String userUid) {
         synchronized (matchingQueue) {
-            matchingQueue.remove(userUid); // 대기열에서 제거
-            userRooms.remove(userUid);     // 할당된 방 정보가 있다면 제거
+            matchingQueue.remove(userUid); 
+            userRooms.remove(userUid);     
         }
         return ResponseEntity.ok("매칭 취소 완료");
     }
 
-    //유저 룸 반환하기
     public static Map<String, String> getUserRooms() {
         return userRooms;
     }
     
-    //게임이 종료된 후 방 데이터 삭제
     public static void removeRoomData(String roomId) {
         if (roomId != null) {
-            roomMaps.remove(roomId); // 해당 방의 맵 데이터 삭제
+            roomMaps.remove(roomId);
+            roomReadyStatus.remove(roomId); // 준비 상태 데이터도 함께 삭제
             userRooms.values().removeIf(id -> id.equals(roomId));
         }
     }
+
     @PostMapping("/match")
     public ResponseEntity<?> requestMatch(@RequestParam String userUid) {
         synchronized (matchingQueue) {
@@ -63,10 +70,8 @@ public class BattleController {
                 String p1 = matchingQueue.poll();
                 String p2 = matchingQueue.poll();
                 
-                // 고유한 방 ID 생성
                 String roomId = "room_" + UUID.randomUUID().toString().substring(0, 8);
                 
-                // 두 유저에게 같은 방 ID 부여
                 userRooms.put(p1, roomId);
                 userRooms.put(p2, roomId);
                 
@@ -77,43 +82,26 @@ public class BattleController {
                 return ResponseEntity.ok(Map.of("roomId", roomId));
             }
         }
-        // 아직 대기 중 (202 Accepted)
         return ResponseEntity.status(HttpStatus.ACCEPTED).body("매칭 대기 중...");
     }
 
-    // 1. 전투 시작: 매칭된 방의 공통 맵과 유저별 첫 손패 지급
+    // ✅ [수정] 전투 시작 API
+    // 이제 이 API는 맵 데이터만 제공하며, 실제 타이머 시작은 웹소켓 'READY' 신호 이후 서버가 쏘는 메시지에 의존합니다.
     @PostMapping("/start")
     public BattleResponse startBattle(@RequestParam String userUid, @RequestBody List<String> userDeck) {
         String roomId = userRooms.get(userUid);
         
-        // 매칭된 방의 공통 맵 데이터를 가져옴 (없으면 새로 하나 뽑음)
         List<MapTileEntity> randomMap = (roomId != null && roomMaps.containsKey(roomId)) 
                                         ? roomMaps.get(roomId) 
                                         : mapRepository.findRandomMap();
         
-        // 덱 셔플 후 첫 손패 2개 선택
-        List<String> mutableDeck = new ArrayList<>(userDeck);
-        Collections.shuffle(mutableDeck);
-        List<String> hand = mutableDeck.subList(0, 2);
-
-        return new BattleResponse(randomMap, hand, 1);
+        // 주의: 이 시점에서 hand를 바로 주지 않고 빈 리스트를 보내거나, 
+        // 클라이언트에서 웹소켓 'GAME_START'를 기다리도록 설계해야 합니다.
+        return new BattleResponse(randomMap, new ArrayList<>(), 1);
     }
 
-    // 2. 배치 정보 수신 및 다음 턴 주사위 지급 (REST 방식 유지 시)
-    @PostMapping("/place")
-    public Map<String, Object> placeDice(@RequestBody PlacementRequest request) {
-        Map<String, Object> response = new HashMap<>();
-        
-        if (request.getTurn() < 3) {
-            List<String> mutableDeck = new ArrayList<>(request.getUserDeck());
-            Collections.shuffle(mutableDeck);
-            
-            response.put("hand", mutableDeck.subList(0, 2));
-            response.put("turn", request.getTurn() + 1);
-            response.put("status", "CONTINUE");
-        } else {
-            response.put("status", "REVEAL");
-        }
-        return response;
+    // 방별 저장된 맵 정보를 가져오는 헬퍼 메서드 (Service에서 사용)
+    public static List<MapTileEntity> getRoomMap(String roomId) {
+        return roomMaps.get(roomId);
     }
 }
