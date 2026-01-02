@@ -275,7 +275,7 @@ public class BattleService {
             BattleController.removeRoomData(roomId);
         } else {
             state.readyUsers.clear();
-            state.turn = 1;
+            state.turn++;
         }
     }
 
@@ -294,6 +294,18 @@ public class BattleService {
         for (long time = 0; time < 30000; time += 100) {
             for (SimUnit attacker : units) {
                 if (attacker.hp <= 0) continue;
+
+                // ✅ [추가] 살아있는 팀의 수 체크 -> 1팀 이하면 전투 조기 종료
+                long livingTeams = units.stream()
+                    .filter(u -> u.hp > 0)
+                    .map(u -> u.uid) // 유저 ID 추출
+                    .distinct()      // 중복 제거 (팀 개수 확인)
+                    .count();
+    
+                if (livingTeams <= 0) {
+                    // 더 이상 싸울 상대가 없으므로 루프 종료
+                    break; 
+                }
 
                 if (time >= attacker.nextAttackTime) {
                     List<SimUnit> targets = units.stream()
