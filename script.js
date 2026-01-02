@@ -681,6 +681,17 @@ function handleBattleMessage(data) {
     }
 }
 
+// 타이머 표시
+let battleTimer = null;
+let timeLeft = 20;
+
+function updateTimerUI() {
+    const timerContainer = document.getElementById('battle-timer-container');
+    const timerEl = document.getElementById('battle-timer');
+    if (timerContainer) timerContainer.style.display = 'block'; // 타이머 보이기
+    if (timerEl) timerEl.innerText = `남은 시간: ${timeLeft}초`;
+}
+
 // [추가] 3턴 종료 후 모든 주사위를 화면에 그리는 함수
 function renderFullMap(placements) {
     if (!placements) return;
