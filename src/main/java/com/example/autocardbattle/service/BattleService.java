@@ -46,18 +46,23 @@ public class BattleService {
     }
 
     public static class SimUnit {
-        String uid; int x, y; String type; int hp; long nextAttackTime; DiceEntity stats;
-        SimUnit(BattleMessage p) {
-            this.uid = p.getSender(); this.x = p.getX(); this.y = p.getY(); this.type = p.getDiceType();
-            this.stats = statMap.get(this.type);
-            if (this.stats == null) {
-                // DB 데이터 누락 시 기본값 (방어 코드)
-                this.stats = new DiceEntity(); 
-                this.stats.setHp(100); this.stats.setDamage(10); 
-                this.stats.setRange(1); this.stats.setAps(1.0);
-            }
-            this.hp = this.stats.getHp();
-            this.nextAttackTime = (long)(Math.random() * 500); 
+        String uid; // 유저 ID
+        int x, y;   // 위치
+        String type; // 주사위 타입 (FIRE, SNIPER 등)
+        int hp, maxHp; // 현재 및 최대 체력
+        long nextAttackTime; // 다음 공격 가능 시간 (ms)
+        DiceEntity stats; // DB에서 가져온 주사위 스탯
+        
+        // 생성자: 배치 정보(p)와 DB 스탯(diceStats)을 받아 초기화합니다
+        SimUnit(BattleMessage p, DiceEntity diceStats) {
+            this.uid = p.getSender();
+            this.x = p.getX();
+            this.y = p.getY();
+            this.type = p.getDiceType();
+            this.stats = diceStats;
+            this.hp = diceStats.getHp();
+            this.maxHp = diceStats.getHp();
+            this.nextAttackTime = 500; 
         }
     }
 
@@ -268,7 +273,11 @@ public class BattleService {
         List<CombatLogEntry> logs = new ArrayList<>();
 
         List<SimUnit> units = new ArrayList<>();
-        state.placements.values().forEach(list -> list.forEach(p -> units.add(new SimUnit(p))));
+        // statMap에서 해당 주사위의 데이터를 찾아서 생성자에 넘겨줘야 합니다.
+        state.placements.values().forEach(list -> list.forEach(p -> {
+            DiceEntity diceStats = statMap.get(p.getDiceType());
+            units.add(new SimUnit(p, diceStats));
+        }));
 
         // 30초(30000ms) 시뮬레이션
         for (long time = 0; time < 30000; time += 100) {
