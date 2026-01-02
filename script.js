@@ -432,6 +432,13 @@ let currentRoomId = null;
 async function startMatch() {
     if (!currentUser) return alert("로그인이 필요합니다.");
 
+    // 2. 덱 구성 확인 (추가된 부분)
+    // selectedDeck이 비어있거나, 콤마로 분리했을 때 유효한 주사위가 없는 경우 체크
+    if (!currentUser.selectedDeck || currentUser.selectedDeck.trim() === "" || currentUser.selectedDeck.split(',').filter(d => d).length === 0) {
+        alert("덱을 먼저 구성해주세요!");
+        return;
+    }
+
     const overlay = document.getElementById('matching-overlay');
     if (overlay) overlay.style.display = 'flex';
 
