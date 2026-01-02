@@ -600,10 +600,15 @@ function renderHand() {
     });
 }
 
+// 주사위 배치 로
 function onTileClickForBattle(x, y) {
+    // ✅ [추가 1] 3회 제한 체크: 이미 3번 놓았으면 더 이상 진행하지 않음
+    if (placementCount >= 3) {
+        return;
+    }
+
     // 1. 선택된 주사위가 있는지 확인
     if (!selectedDiceFromHand) {
-        alert("배치할 주사위를 먼저 선택해주세요!");
         return;
     }
 
@@ -625,7 +630,7 @@ function onTileClickForBattle(x, y) {
             return;
     }
 
-    // 5. ✅ 이전 라운드 주사위 혹은 현재 배치된 주사위 중복 체크
+    // 5. 이전 라운드 주사위 혹은 현재 배치된 주사위 중복 체크
     if (tileInfo.hasDice || tileEl.classList.contains('placed-dice')) {
         alert("이미 주사위가 있는 칸입니다!");
         return;
@@ -645,13 +650,25 @@ function onTileClickForBattle(x, y) {
     // 7. UI 즉시 반영
     tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
     tileEl.style.fontSize = "24px";
-    tileEl.classList.add('placed-dice'); // ✅ 시각적 잠금 클래스 추가
-    tileInfo.hasDice = true; // ✅ 로컬 데이터 동기화
+    tileEl.classList.add('placed-dice'); // 시각적 잠금 클래스 추가
+    tileInfo.hasDice = true; // 로컬 데이터 동기화
     
     // 8. 손패 관리 및 선택 초기화
-    myHand = myHand.filter(d => d !== selectedDiceFromHand); // ✅ 배치한 주사위는 내 손패에서 제거
+    // 배치한 주사위는 내 손패에서 제거 (리필 전까지 비워둠)
+    myHand = myHand.filter(d => d !== selectedDiceFromHand); 
     selectedDiceFromHand = null;
-    renderHand(); // ✅ 주사위가 사라진 손패 다시 그리기
+    
+    // ✅ [추가 2] 배치 횟수 증가 및 완료 처리
+    placementCount++;
+    
+    if (placementCount >= 3) {
+        // 3번 다 놓았으면 안내 메시지 표시 (리필 안 함)
+        document.getElementById('battle-hand').innerHTML = "<h4>✅ 배치를 완료했습니다. 결과 공개를 기다리세요.</h4>";
+        // 필요하다면 여기서 sendCompleteSignal()을 호출하여 즉시 완료 신호를 보낼 수도 있습니다.
+    } else {
+        // 아직 기회가 남았으면 남은 손패 다시 그리기 (리필 대기)
+        renderHand(); 
+    }
 }
 
 //현재 턴 정의
