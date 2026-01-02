@@ -601,17 +601,14 @@ function renderHand() {
 }
 
 
-// 주사위 배치 및 자동 완료 로직
+// 유닛 배치 함수
 function onTileClickForBattle(x, y) {
-    // 3회 제한
     if (placementCount >= 3) return;
     if (!selectedDiceFromHand) return;
 
-    // 타일 유효성 체크
     const tileInfo = mapData.find(t => t.x === x && t.y === y);
     const tileEl = document.getElementById(`tile-${x}-${y}`);
     
-    // 내 타일이고, 비어있을 때만
     if (!tileInfo || tileInfo.tileType !== 'MY_TILE' || tileInfo.hasDice) {
         return; 
     }
@@ -626,30 +623,25 @@ function onTileClickForBattle(x, y) {
     };
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
     
-    // UI 즉시 반영 (내가 놓은 것)
+    // UI 반영
     tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
     tileEl.classList.add('placed-dice');
-    tileEl.setAttribute('data-dice', selectedDiceFromHand); // 타입 저장
+    tileEl.setAttribute('data-dice', selectedDiceFromHand);
     tileInfo.hasDice = true;
     
-    // 손패 처리
     myHand = myHand.filter(d => d !== selectedDiceFromHand); 
     selectedDiceFromHand = null;
     placementCount++;
     
-    // ✅ 3개를 모두 놓았다면 -> 자동 완료 처리
+    // ✅ [수정] 3개를 다 놓아도 'COMPLETE'를 보내지 않습니다. 
+    // 서버가 3개를 감지하면 자동으로 시작합니다.
     if (placementCount >= 3) {
-        sendCompleteSignal(); // 서버에 COMPLETE 전송
-        
-        // UI 숨김 및 대기 문구
         document.getElementById('battle-hand-section').style.display = 'none';
-        document.getElementById('battle-hand').innerHTML = ""; // 초기화
-        
-        // 맵 상단 등에 대기 상태 표시 (선택)
+        document.getElementById('battle-hand').innerHTML = ""; 
         const timerDiv = document.getElementById('battle-timer');
         if(timerDiv) timerDiv.innerText = "상대 대기 중...";
     } else {
-        renderHand(); // 아직 남았으면 손패 다시 그리기
+        renderHand(); 
     }
 }
 
