@@ -688,6 +688,19 @@ function handleBattleMessage(data) {
             
             // 1. 맵 전체 공개 및 체력바 세팅 (전투 모드)
             renderFullMap(data.allPlacements, true); 
+
+            // ✅ [수정] 전투 종료 시간 계산 (동적 타이머)
+            // 로그가 하나도 없으면(0초 컷) 최소 3초, 있으면 마지막 로그 시간 + 2초 여유
+            let lastLogTime = 0;
+            if (data.combatLogs && data.combatLogs.length > 0) {
+                lastLogTime = data.combatLogs[data.combatLogs.length - 1].timeDelay;
+                playCombatLogs(data.combatLogs);
+            }
+            
+            // 실제 전투가 10초만에 끝났으면 30초 기다리지 않고 12초 뒤에 다음 판 시작
+            // ms -> 초 변환 (올림 처리)
+            let combatDurationSec = Math.ceil((lastLogTime + 2000) / 1000); 
+            if (combatDurationSec < 3) combatDurationSec = 3; // 최소 3초 보장
             
             // 2. UI: 전투 중 표시
             document.getElementById('battle-hand-section').style.display = 'block';
@@ -702,13 +715,13 @@ function handleBattleMessage(data) {
             }
 
             // 4. 카운트다운
-            let combatTime = 30;
+            let combatTime = combatDurationSec;
             const combatInterval = setInterval(() => {
                 combatTime--;
                 const counter = document.getElementById('combat-countdown');
                 if(counter) counter.innerText = combatTime;
                 if(combatTime <= 0) clearInterval(combatInterval);
-            }, 1000);
+            }, combatDurationSec * 1000);
 
             // 5. 30초 후 결과 반영 및 다음 라운드
             setTimeout(() => {
@@ -739,15 +752,19 @@ function handleBattleMessage(data) {
 function playCombatLogs(logs) {
     logs.forEach(log => {
         setTimeout(() => {
-            // ✅ [추가] 공격 대상 타일을 가져옴
-            const targetTile = document.getElementById(`tile-${log.targetX}-${log.targetY}`);
-            
-            // ✅ [추가] 대상이 이미 죽었다면 투사체를 쏘지 않고 무시함
-            if (targetTile && targetTile.classList.contains('dead')) {
-                return; 
+            // ✅ [수정 1] 공격자(Attacker)가 죽었는지 확인 (좀비 공격 방지)
+            const attackerTile = document.getElementById(`tile-${log.attackerX}-${log.attackerY}`);
+            if (attackerTile && attackerTile.classList.contains('dead')) {
+                return; // 공격자가 이미 죽었으면 공격 취소
             }
 
-            // 대상이 살아있을 때만 투사체 발사
+            // ✅ [수정 2] 방어자(Target)가 죽었는지 확인 (부관참시 방지)
+            const targetTile = document.getElementById(`tile-${log.targetX}-${log.targetY}`);
+            if (targetTile && targetTile.classList.contains('dead')) {
+                return; // 대상이 이미 죽었으면 공격 취소
+            }
+
+            // 둘 다 살아있을 때만 발사!
             animateProjectile(log.attackerX, log.attackerY, log.targetX, log.targetY, log.attackType);
             
             setTimeout(() => {
@@ -756,7 +773,6 @@ function playCombatLogs(logs) {
         }, log.timeDelay);
     });
 }
-
 // 투사체 애니메이션 (좌표 계산)
 function animateProjectile(sx, sy, tx, ty, type) {
     const startTile = document.getElementById(`tile-${sx}-${sy}`);
