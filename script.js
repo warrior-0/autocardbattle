@@ -686,6 +686,22 @@ function handleBattleMessage(data) {
 let battleTimer = null;
 let timeLeft = 20;
 
+function startBattleTimer() {
+    if (battleTimer) clearInterval(battleTimer);
+    timeLeft = 20;
+    updateTimerUI(); // ✅ 시작 즉시 UI 갱신
+
+    battleTimer = setInterval(() => {
+        timeLeft--;
+        updateTimerUI(); // ✅ 매 초마다 UI 갱신
+
+        if (timeLeft <= 0) {
+            clearInterval(battleTimer);
+            sendCompleteSignal(); // ✅ 시간 종료 시 자동 확정
+        }
+    }, 1000);
+}
+
 function updateTimerUI() {
     const timerContainer = document.getElementById('battle-timer-container');
     const timerEl = document.getElementById('battle-timer');
