@@ -11,9 +11,11 @@ public class BattleMessage {
     private int y;
     private String diceType;
     private int turn;
+    private List<CombatLogEntry> combatLogs;
 
     // ✅ 추가된 필드: 승패 판정 결과와 전체 배치 정보를 담기 위함
     private String loserUid; 
     private List<BattleMessage> allPlacements;
     private List<String> nextHand; // ✅ 추가: 다음 턴에 사용할 주사위 리스트
+    private long timeDelay;    // 전투 시작 후 몇 ms 뒤에 발사되는지
 }
