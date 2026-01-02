@@ -449,8 +449,6 @@ let currentRoomId = null;
 async function startMatch() {
     if (!currentUser) return alert("로그인이 필요합니다.");
 
-    // 2. 덱 구성 확인 (추가된 부분)
-    // selectedDeck이 비어있거나, 콤마로 분리했을 때 유효한 주사위가 없는 경우 체크
     if (!currentUser.selectedDeck || currentUser.selectedDeck.trim() === "" || currentUser.selectedDeck.split(',').filter(d => d).length === 0) {
         alert("덱을 먼저 구성해주세요!");
         return;
@@ -471,11 +469,10 @@ async function startMatch() {
             if (overlay) overlay.style.display = 'none';
             if (matchTimer) clearTimeout(matchTimer);
 
-            // ✅ 추가: 전투 화면에서는 '홈으로' 버튼 숨기기
+            // 1. UI 설정 (홈 버튼 숨기기 및 전장 제목 변경)
             const backBtn = document.querySelector('#editor-section .back-btn');
             if (backBtn) backBtn.style.display = 'none';
 
-            // 1. 전투 전용 UI 표시
             document.getElementById('battle-header').style.display = 'flex';
             document.getElementById('battle-hand-section').style.display = 'block';
             
@@ -484,20 +481,14 @@ async function startMatch() {
                 editorSection.style.display = 'block';
                 const h2 = editorSection.querySelector('h2');
                 if (h2) h2.innerText = "⚔️ 실시간 전장";
-
-                document.querySelectorAll('.tile').forEach(tile => {
-                    const coords = tile.id.split('-');
-                    const x = parseInt(coords[1]);
-                    const y = parseInt(coords[2]);
-                    tile.onclick = () => onTileClickForBattle(x, y);
-                });
-                
                 document.querySelector('.palette').style.display = 'none';
                 document.querySelector('.actions').style.display = 'none';
             }
 
-            // 2. 데이터 로드 및 맵 생성
+            // 2. 웹소켓 연결 (서버에 READY를 보내고 GAME_START를 기다림)
             connectWebSocket();
+
+            // 3. 맵 데이터 로드 및 전역 변수 저장
             const startRes = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -506,15 +497,14 @@ async function startMatch() {
             const startData = await startRes.json();
             
             if (startData.mapData && startData.mapData.length > 0) {
-                // ✅ 수정: 두 번째 인자로 true를 보내서 배틀 모드(글자 없음)로 로드합니다.
-                loadMapToGrid(startData.mapData[0].mapData, true);
+                // ✅ 핵심: 나중에 GAME_START 메시지를 받았을 때 반전시키기 위해 맵 문자열을 저장해둡니다.
+                window.currentMapString = startData.mapData[0].mapData;
+                loadMapToGrid(window.currentMapString, true);
             }
-            
-            myHand = startData.hand;
-            currentTurn = 1;
-            renderHand();
-            startBattleTimer();
 
+            // ✅ 대기 알림: 아직 주사위가 나오지 않고 상대방을 기다리는 상태임을 표시합니다.
+            document.getElementById('battle-hand').innerHTML = "<h4>⚔️ 상대방을 기다리는 중...</h4>";
+            
         } else if (res.status === 202) {
             matchTimer = setTimeout(startMatch, 5000); 
         }
@@ -542,29 +532,30 @@ function cancelMatch() {
     navTo('home');
 }
 
-// 웹소켓 연결
+// 변수 추가
+let placementCount = 0;
+let isSecondPlayer = false; // 맵 반전용
+
+// 1. 웹소켓 연결 (개인 채널 구독 필수)
 function connectWebSocket() {
     if (!currentRoomId || !currentUser) return;
-
     const socket = new SockJS(`${SERVER_URL}/ws?userUid=${currentUser.firebaseUid}`);
     stompClient = Stomp.over(socket);
 
     stompClient.connect({}, function (frame) {
         console.log("웹소켓 연결 성공");
         
-        // 1. 공통 채널 구독 (REVEAL, WAIT_OPPONENT 등 공유 메시지용)
+        // 공통 채널
         stompClient.subscribe(`/topic/battle/${currentRoomId}`, function (message) {
-            const data = JSON.parse(message.body);
-            handleBattleMessage(data);
+            handleBattleMessage(JSON.parse(message.body));
         });
 
-        // 2. ✅ 추가: 내 전용 개인 채널 구독 (서버가 나에게만 보내는 TURN_PROGRESS 수신용)
+        // ✅ [추가] 개인 채널 (리필 및 시작 신호 수신)
         stompClient.subscribe(`/topic/battle/${currentRoomId}/${currentUser.firebaseUid}`, function (message) {
-            const data = JSON.parse(message.body);
-            handleBattleMessage(data); // 수신한 다음 손패 데이터를 처리함
+            handleBattleMessage(JSON.parse(message.body));
         });
 
-        // 준비 완료 알림
+        // 준비 완료 신호 전송
         stompClient.send(`/app/battle/${currentRoomId}/ready`, {}, JSON.stringify({
             type: "READY",
             sender: currentUser.firebaseUid
@@ -665,50 +656,56 @@ function onTileClickForBattle(x, y) {
 
 // 서버에서 오는 실시간 메시지 처리기
 function handleBattleMessage(data) {
-    console.log("메시지 수신:", data.type, data); // 디버깅용
+    console.log("메시지 수신:", data.type, data);
 
     switch(data.type) {
+        case "GAME_START":
+            // 1. 내가 몇 번째 유저인지 설정
+            isSecondPlayer = (data.sender === "1"); 
+
+            // 2. [추가] 진영 설정에 맞춰 맵을 다시 그림 (파랑/빨강 반전 로직 적용)
+            // window.currentMapString은 startMatch 단계에서 저장해둔 맵 데이터입니다.
+            if (window.currentMapString) {
+                loadMapToGrid(window.currentMapString, true); 
+            }
+                    
+            myHand = data.nextHand;
+            placementCount = 0;
+            renderHand();
+            startBattleTimer(); // 60초 시작
+            break;
+
+        case "DICE_REFILL":
+            myHand = data.nextHand; // 리필된 주사위로 교체
+            renderHand();
+            console.log("주사위가 리필되었습니다.");
+            break;
+            
+        case "TURN_PROGRESS":
+            currentTurn = data.turn;
+            myHand = data.nextHand || [];
+            placementCount = 0;
+            renderHand();
+            startBattleTimer();
+            break;
+
         case "OPPONENT_LEFT":
             if (battleTimer) clearInterval(battleTimer);
             alert("상대방이 전장을 이탈했습니다. 당신의 승리입니다!");
             navTo('home');
             break;
-        
-        case "TURN_PROGRESS":
-            // 1. 서버가 준 다음 턴 번호와 손패 적용
-            currentTurn = data.turn;
-            myHand = data.nextHand || [];
-            
-            // 2. UI 갱신 (배치 영역 다시 보이기)
-            document.getElementById('battle-hand-section').style.display = 'block';
-            renderHand();
-            
-            // 3. 20초 타이머 재시작
-            startBattleTimer(); 
-            alert(`${currentTurn}턴이 시작되었습니다! 20초 안에 배치하세요.`);
-            break;
 
         case "REVEAL":
-            // 1. 타이머 중지
             if (battleTimer) clearInterval(battleTimer);
-            
-            // 2. 전체 전장 공개 (상대방 주사위 포함하여 한꺼번에 그리기)
             renderFullMap(data.allPlacements); 
-            
-            // 3. 승패 판정 및 데미지 적용
             applyDamage(data.loserUid);
-            
-            // 4. 다음 라운드 준비 (턴 초기화 및 상태 정리)
             currentTurn = 1;
             selectedDiceFromHand = null;
-            renderHand(); 
-            
-            alert("전투 종료! 살아남은 주사위들이 다음 라운드에도 유지됩니다.");
+            renderHand();
             break;
             
         case "WAIT_OPPONENT":
             console.log("상대방의 배치를 기다리고 있습니다...");
-            // UI에 "상대방 대기 중..." 표시를 추가하면 더 좋습니다.
             break;
             
         case "OPPONENT_READY":
@@ -735,11 +732,11 @@ function sendCompleteSignal() {
 
 // 타이머 표시
 let battleTimer = null;
-let timeLeft = 20;
+let timeLeft = 60;
 
 function startBattleTimer() {
     if (battleTimer) clearInterval(battleTimer);
-    timeLeft = 20;
+    timeLeft = 60;
     updateTimerUI(); // ✅ 시작 즉시 UI 갱신
 
     battleTimer = setInterval(() => {
