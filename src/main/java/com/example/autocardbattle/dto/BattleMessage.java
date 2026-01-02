@@ -14,5 +14,6 @@ public class BattleMessage {
 
     // ✅ 추가된 필드: 승패 판정 결과와 전체 배치 정보를 담기 위함
     private String loserUid; 
-    private List<BattleMessage> allPlacements; 
+    private List<BattleMessage> allPlacements;
+    private List<String> nextHand; // ✅ 추가: 다음 턴에 사용할 주사위 리스트
 }
