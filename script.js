@@ -739,11 +739,15 @@ function handleBattleMessage(data) {
 function playCombatLogs(logs) {
     logs.forEach(log => {
         setTimeout(() => {
-            // ✅ [수정] 공격자 타일을 가져와서 현재 죽은 상태인지 확인
-            const attackerTile = document.getElementById(`tile-${log.attackerX}-${log.attackerY}`);
-            if (attackerTile && attackerTile.classList.contains('dead')) {
-                return; // 이미 죽었다면 공격(투사체 발사)을 취소합니다.
+            // ✅ [추가] 공격 대상 타일을 가져옴
+            const targetTile = document.getElementById(`tile-${log.targetX}-${log.targetY}`);
+            
+            // ✅ [추가] 대상이 이미 죽었다면 투사체를 쏘지 않고 무시함
+            if (targetTile && targetTile.classList.contains('dead')) {
+                return; 
             }
+
+            // 대상이 살아있을 때만 투사체 발사
             animateProjectile(log.attackerX, log.attackerY, log.targetX, log.targetY, log.attackType);
             
             setTimeout(() => {
@@ -752,6 +756,7 @@ function playCombatLogs(logs) {
         }, log.timeDelay);
     });
 }
+
 // 투사체 애니메이션 (좌표 계산)
 function animateProjectile(sx, sy, tx, ty, type) {
     const startTile = document.getElementById(`tile-${sx}-${sy}`);
