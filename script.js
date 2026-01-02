@@ -600,43 +600,23 @@ function renderHand() {
     });
 }
 
-// 주사위 배치 로
+
+// 주사위 배치 및 자동 완료 로직
 function onTileClickForBattle(x, y) {
-    // ✅ [추가 1] 3회 제한 체크: 이미 3번 놓았으면 더 이상 진행하지 않음
-    if (placementCount >= 3) {
-        return;
-    }
+    // 3회 제한
+    if (placementCount >= 3) return;
+    if (!selectedDiceFromHand) return;
 
-    // 1. 선택된 주사위가 있는지 확인
-    if (!selectedDiceFromHand) {
-        return;
-    }
-
-    // 2. 웹소켓 연결 상태 확인
-    if (!stompClient || !stompClient.connected) {
-        alert("서버와 연결이 불안정합니다. 잠시만 기다려주세요.");
-        return;
-    }
-
-    // 3. 대상 타일 데이터 및 UI 요소 가져오기
+    // 타일 유효성 체크
     const tileInfo = mapData.find(t => t.x === x && t.y === y);
     const tileEl = document.getElementById(`tile-${x}-${y}`);
-
-    if (!tileInfo || !tileEl) return;
-
-    // 4. 내 진영 체크 (MY_TILE 여부)
-    if (!tileInfo || tileInfo.tileType !== 'MY_TILE') {
-            alert("자신의 타일에만 주사위를 배치할 수 있습니다!");
-            return;
+    
+    // 내 타일이고, 비어있을 때만
+    if (!tileInfo || tileInfo.tileType !== 'MY_TILE' || tileInfo.hasDice) {
+        return; 
     }
 
-    // 5. 이전 라운드 주사위 혹은 현재 배치된 주사위 중복 체크
-    if (tileInfo.hasDice || tileEl.classList.contains('placed-dice')) {
-        alert("이미 주사위가 있는 칸입니다!");
-        return;
-    }
-
-    // 6. 서버로 배치 정보 전송
+    // 서버 전송
     const payload = {
         type: "PLACE",
         sender: currentUser.firebaseUid,
@@ -644,105 +624,188 @@ function onTileClickForBattle(x, y) {
         diceType: selectedDiceFromHand,
         turn: currentTurn
     };
-
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
     
-    // 7. UI 즉시 반영
+    // UI 즉시 반영 (내가 놓은 것)
     tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
-    tileEl.style.fontSize = "24px";
-    tileEl.classList.add('placed-dice'); // 시각적 잠금 클래스 추가
-    tileInfo.hasDice = true; // 로컬 데이터 동기화
+    tileEl.classList.add('placed-dice');
+    tileEl.setAttribute('data-dice', selectedDiceFromHand); // 타입 저장
+    tileInfo.hasDice = true;
     
-    // 8. 손패 관리 및 선택 초기화
-    // 배치한 주사위는 내 손패에서 제거 (리필 전까지 비워둠)
+    // 손패 처리
     myHand = myHand.filter(d => d !== selectedDiceFromHand); 
     selectedDiceFromHand = null;
-    
-    // ✅ [추가 2] 배치 횟수 증가 및 완료 처리
     placementCount++;
     
+    // ✅ 3개를 모두 놓았다면 -> 자동 완료 처리
     if (placementCount >= 3) {
-        // 3번 다 놓았으면 안내 메시지 표시 (리필 안 함)
-        document.getElementById('battle-hand').innerHTML = "<h4>✅ 배치를 완료했습니다. 결과 공개를 기다리세요.</h4>";
-        // 필요하다면 여기서 sendCompleteSignal()을 호출하여 즉시 완료 신호를 보낼 수도 있습니다.
+        sendCompleteSignal(); // 서버에 COMPLETE 전송
+        
+        // UI 숨김 및 대기 문구
+        document.getElementById('battle-hand-section').style.display = 'none';
+        document.getElementById('battle-hand').innerHTML = ""; // 초기화
+        
+        // 맵 상단 등에 대기 상태 표시 (선택)
+        const timerDiv = document.getElementById('battle-timer');
+        if(timerDiv) timerDiv.innerText = "상대 대기 중...";
     } else {
-        // 아직 기회가 남았으면 남은 손패 다시 그리기 (리필 대기)
-        renderHand(); 
+        renderHand(); // 아직 남았으면 손패 다시 그리기
     }
 }
 
 //현재 턴 정의
 let currentTurn = 1;
 
-// 서버에서 오는 실시간 메시지 처리기
+// 메시지 처리 (전투 연출 포함)
 function handleBattleMessage(data) {
-    console.log("메시지 수신:", data.type, data);
-
     switch(data.type) {
         case "GAME_START":
-            // 1. 내가 몇 번째 유저인지 설정
-            isSecondPlayer = (data.sender === "1");
-            currentTurn = data.turn || 1;
-
-            // 2. [추가] 진영 설정에 맞춰 맵을 다시 그림 (파랑/빨강 반전 로직 적용)
-            if (window.currentMapString) {
-                loadMapToGrid(window.currentMapString, true); 
-            }
-            // 3. 맵을 이제 보이게 설정 (동시 시작 효과)
+            isSecondPlayer = (data.sender === "1"); 
+            currentTurn = 1;
+            if (window.currentMapString) loadMapToGrid(window.currentMapString, true);
             document.getElementById('map-grid').style.visibility = 'visible';
-                    
-            myHand = data.nextHand;
-            placementCount = 0;
-            renderHand();
-            startBattleTimer(); // 60초 시작
-            break;
-
-        case "DICE_REFILL":
-            myHand = data.nextHand; // 리필된 주사위로 교체
-            renderHand();
-            console.log("주사위가 리필되었습니다.");
-            break;
             
-        case "TURN_PROGRESS":
-            currentTurn = data.turn;
-            myHand = data.nextHand || [];
+            myHand = data.nextHand;
             placementCount = 0;
             renderHand();
             startBattleTimer();
             break;
 
-        case "OPPONENT_LEFT":
-            if (battleTimer) clearInterval(battleTimer);
-            alert("상대방이 전장을 이탈했습니다. 당신의 승리입니다!");
-            navTo('home');
+        case "DICE_REFILL":
+            // 3개 다 놓기 전까지만 리필 유효
+            if (placementCount < 3) {
+                myHand = data.nextHand;
+                renderHand();
+            }
+            break;
+            
+        case "TURN_PROGRESS":
+            startNextRound(data.nextHand, data.turn);
             break;
 
         case "REVEAL":
             if (battleTimer) clearInterval(battleTimer);
             
-            // 1. 전체 맵 공개
-            renderFullMap(data.allPlacements);
+            // 1. 맵 전체 공개 및 체력바 세팅 (전투 모드)
+            renderFullMap(data.allPlacements, true); 
             
-            // 2. 전투 페이즈 시작 (UI 변경)
-            document.getElementById('battle-hand').innerHTML = "<h3>🔥 전투 진행 중... (30초)</h3>";
-            document.getElementById('battle-timer').innerText = "전투 중!";
-            
-            // 3. 데미지 적용 (백엔드 계산 결과)
-            applyDamage(data.damageToP1, data.damageToP2);
+            // 2. UI: 전투 중 표시
+            document.getElementById('battle-hand-section').style.display = 'block';
+            document.getElementById('battle-hand').innerHTML = `
+                <div style="text-align: center; color: #e74c3c;">
+                    <h3>🔥 전투 진행 중... <span id="combat-countdown">30</span></h3>
+                </div>`;
 
-            // ✅ 4. 30초 대기 후 다음 라운드 시작
+            // 3. 전투 로그 재생
+            if (data.combatLogs) {
+                playCombatLogs(data.combatLogs);
+            }
+
+            // 4. 카운트다운
+            let combatTime = 30;
+            const combatInterval = setInterval(() => {
+                combatTime--;
+                const counter = document.getElementById('combat-countdown');
+                if(counter) counter.innerText = combatTime;
+                if(combatTime <= 0) clearInterval(combatInterval);
+            }, 1000);
+
+            // 5. 30초 후 결과 반영 및 다음 라운드
             setTimeout(() => {
-                startNextRound(data.nextHand); // 서버가 미리 준 다음 손패 사용
-            }, 30000); // 30초 딜레이
+                clearInterval(combatInterval);
+                
+                // ✅ 최종 체력 동기화 (서버 값 사용)
+                myHp = data.remainingMyHp;
+                enemyHp = data.remainingEnemyHp;
+                updateHpUI('my-hp', myHp);
+                updateHpUI('enemy-hp', enemyHp);
+
+                if (data.loserUid && data.loserUid !== "NONE") {
+                    alert(data.loserUid === currentUser.firebaseUid ? "패배했습니다..." : "승리했습니다!");
+                    navTo('home');
+                } else {
+                    startNextRound(data.nextHand, currentTurn + 1); // 다음 라운드
+                }
+            }, 30000);
             break;
             
         case "WAIT_OPPONENT":
-            console.log("상대방의 배치를 기다리고 있습니다...");
+            // 상대방 기다리는 중... (UI 표시)
             break;
+    }
+}
+
+// 전투 로그 재생 (투사체 & 체력바)
+function playCombatLogs(logs) {
+    logs.forEach(log => {
+        setTimeout(() => {
+            // 투사체 발사
+            animateProjectile(log.attackerX, log.attackerY, log.targetX, log.targetY, log.attackType);
             
-        case "OPPONENT_READY":
-            console.log("상대방이 이번 턴 배치를 마쳤습니다.");
-            break;
+            // 타격 시점 (투사체 이동 0.3초 후)
+            setTimeout(() => {
+                updateUnitHp(log.targetX, log.targetY, log.damage);
+            }, 300);
+        }, log.timeDelay);
+    });
+}
+
+// 투사체 애니메이션 (좌표 계산)
+function animateProjectile(sx, sy, tx, ty, type) {
+    const startTile = document.getElementById(`tile-${sx}-${sy}`);
+    const endTile = document.getElementById(`tile-${tx}-${ty}`);
+    if (!startTile || !endTile) return;
+
+    const ball = document.createElement('div');
+    ball.className = 'projectile';
+    
+    // 공격 타입별 색상
+    if (type.includes('FIRE')) ball.style.backgroundColor = '#e74c3c';
+    else if (type.includes('WIND')) ball.style.backgroundColor = '#3498db';
+    else if (type.includes('ELECTRIC')) ball.style.backgroundColor = '#f1c40f';
+    
+    // 시작 위치 (화면 기준 절대 좌표 계산)
+    const sRect = startTile.getBoundingClientRect();
+    const eRect = endTile.getBoundingClientRect();
+    
+    // body에 붙여서 좌표 제약 없이 이동
+    document.body.appendChild(ball);
+    
+    // 초기 위치 설정 (+24는 타일 중심 보정값)
+    ball.style.left = (sRect.left + 24) + 'px';
+    ball.style.top = (sRect.top + 24) + 'px';
+    
+    // 강제 리플로우 (애니메이션 트리거)
+    ball.getBoundingClientRect(); 
+    
+    // 목표 위치로 이동
+    const deltaX = eRect.left - sRect.left;
+    const deltaY = eRect.top - sRect.top;
+    ball.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+    
+    // 도착 후 제거
+    setTimeout(() => ball.remove(), 300);
+}
+
+// 유닛 체력바 업데이트 및 사망 처리
+function updateUnitHp(x, y, damage) {
+    const tile = document.getElementById(`tile-${x}-${y}`);
+    if (!tile) return;
+    
+    let currentHp = parseInt(tile.getAttribute('data-hp') || 100);
+    const maxHp = parseInt(tile.getAttribute('data-max-hp') || 100);
+    
+    currentHp -= damage;
+    tile.setAttribute('data-hp', currentHp);
+    
+    const fill = tile.querySelector('.hp-bar-fill');
+    if (fill) {
+        const percent = Math.max(0, (currentHp / maxHp) * 100);
+        fill.style.width = `${percent}%`;
+    }
+    
+    if (currentHp <= 0) {
+        tile.classList.add('dead'); // 회색 처리
     }
 }
 
@@ -789,26 +852,32 @@ function updateTimerUI() {
     if (timerEl) timerEl.innerText = `남은 시간: ${timeLeft}초`;
 }
 
-// [수정] renderFullMap: 이전 라운드 정보를 로컬 mapData에 저장하여 유지합니다.
-function renderFullMap(placements) {
+// renderFullMap 보완: 체력바 추가
+function renderFullMap(placements, isBattleMode) {
     if (!placements) return;
-
     placements.forEach(p => {
         const tile = document.getElementById(`tile-${p.x}-${p.y}`);
-        // ✅ 중요: 내 로컬 데이터(mapData)에도 주사위 존재 여부를 기록합니다.
-        const tileInfo = mapData.find(m => m.x === p.x && m.y === p.y);
-        
-        if (tile && tileInfo) {
-            tile.innerText = getDiceEmoji(p.diceType); 
-            tile.classList.add('placed-dice'); // 시각적 확정
-            tileInfo.hasDice = true; // ✅ 데이터상 주사위 존재 기록
-            tileInfo.diceType = p.diceType;
+        if (tile) {
+            tile.innerText = getDiceEmoji(p.diceType);
+            tile.classList.add('placed-dice');
+            
+            // 진영 색상
+            const tileInfo = mapData.find(m => m.x === p.x && m.y === p.y);
+            if (tileInfo) {
+                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "#3498db";
+                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "#e74c3c";
+            }
 
-            // 진영별 스타일 유지
-            if (tileInfo.tileType === 'MY_TILE') {
-                tile.style.backgroundColor = "#3498db";
-            } else if (tileInfo.tileType === 'ENEMY_TILE') {
-                tile.style.backgroundColor = "#e74c3c";
+            if (isBattleMode) {
+                // 체력바 주입
+                if (!tile.querySelector('.hp-bar-container')) {
+                    tile.setAttribute('data-hp', 100); // DB 연동 시 p.hp 사용
+                    tile.setAttribute('data-max-hp', 100);
+                    const bar = document.createElement('div');
+                    bar.className = 'hp-bar-container';
+                    bar.innerHTML = '<div class="hp-bar-fill"></div>';
+                    tile.appendChild(bar);
+                }
             }
         }
     });
@@ -855,24 +924,30 @@ function updateHpUI(elementId, hp) {
     hpBar.innerText = "❤️".repeat(hp) + "🖤".repeat(5 - hp);
 }
 
-// ✅ 다음 라운드 시작 함수
-function startNextRound(nextHand) {
-    alert("⚔️ 다음 라운드가 시작됩니다! 배치를 준비하세요.");
-    
-    // 1. 변수 및 상태 초기화
-    currentTurn = 1;
+// 라운드 리셋 및 복구
+function startNextRound(nextHand, nextTurnVal) {
+    currentTurn = nextTurnVal;
     placementCount = 0;
     selectedDiceFromHand = null;
+    myHand = nextHand || [];
     
-    // 2. 맵의 주사위 표시 제거 (데이터는 유지하되 UI에서 'placed-dice' 클래스 등 정리 필요 시 수행)
-    // (현재 로직상 hasDice가 유지되므로 맵은 그대로 둡니다. 만약 죽은 주사위를 없애려면 여기서 처리)
-    
-    // 3. 서버가 준 새로운 손패 적용
-    myHand = nextHand || []; 
-    
-    // 4. UI 복구
+    // 맵 상태 복구 (체력바 리셋, 사망 해제)
+    // renderFullMap은 기존 배치 정보로 덮어씌우므로 자동으로 초기화됨
+    // 다만 시각적으로 깔끔하게 하기 위해 한 번 클리어하고 그리는 것도 방법
+    // 여기선 UI만 갱신
+    document.getElementById('battle-hand-section').style.display = 'block';
     renderHand();
-    startBattleTimer(); // 60초 타이머 다시 시작
+    startBattleTimer(); // 60초 시작
+    
+    // 맵의 모든 유닛을 '풀피' 상태로 시각적 복구 (기존 배치 유지 시)
+    document.querySelectorAll('.tile.placed-dice').forEach(tile => {
+        tile.classList.remove('dead');
+        tile.setAttribute('data-hp', 100); // 임시값, 실제론 DB값
+        const fill = tile.querySelector('.hp-bar-fill');
+        if(fill) fill.style.width = '100%';
+    });
+    
+    alert(`⚔️ ${currentTurn}턴 시작! 60초 안에 배치하세요.`);
 }
 
 window.addEventListener('DOMContentLoaded', () => {
