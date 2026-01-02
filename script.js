@@ -488,19 +488,12 @@ async function startMatch() {
             // 2. 웹소켓 연결 (서버에 READY를 보내고 GAME_START를 기다림)
             connectWebSocket();
 
-            // 3. 맵 데이터 로드 및 전역 변수 저장
-            const startRes = await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
+            // ✅ [수정] start API를 호출하되, 반환된 맵 데이터는 무시합니다.
+            await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(currentUser.selectedDeck.split(","))
             });
-            const startData = await startRes.json();
-
-            // 맵 데이터 저장 및 로드 (하지만 visibility: hidden 상태라 안 보임)
-            if (startData.mapData && startData.mapData.length > 0) {
-                window.currentMapString = startData.mapData[0].mapData;
-                loadMapToGrid(window.currentMapString, true);
-            }
 
             // ✅ 대기 알림: 아직 주사위가 나오지 않고 상대방을 기다리는 상태임을 표시합니다.
             document.getElementById('battle-hand').innerHTML = "<h4>⚔️ 상대방을 기다리는 중...</h4>";
