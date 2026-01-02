@@ -654,6 +654,9 @@ function onTileClickForBattle(x, y) {
     renderHand(); // ✅ 주사위가 사라진 손패 다시 그리기
 }
 
+//현재 턴 정의
+let currentTurn = 1;
+
 // 서버에서 오는 실시간 메시지 처리기
 function handleBattleMessage(data) {
     console.log("메시지 수신:", data.type, data);
@@ -661,7 +664,8 @@ function handleBattleMessage(data) {
     switch(data.type) {
         case "GAME_START":
             // 1. 내가 몇 번째 유저인지 설정
-            isSecondPlayer = (data.sender === "1"); 
+            isSecondPlayer = (data.sender === "1");
+            currentTurn = data.turn || 1;
 
             // 2. [추가] 진영 설정에 맞춰 맵을 다시 그림 (파랑/빨강 반전 로직 적용)
             // window.currentMapString은 startMatch 단계에서 저장해둔 맵 데이터입니다.
