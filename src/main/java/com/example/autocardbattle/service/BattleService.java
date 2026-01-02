@@ -202,7 +202,8 @@ public class BattleService {
         SimulationResult simResult = simulateCombat(state, statMap);
 
         // 3. 결과 판정 (남은 유닛 수 비교)
-        Set<String> userUids = state.placements.keySet();
+        // '준비 완료'된 모든 유저(배치 완료 OR 타임아웃)를 기준으로 잡습니다.
+        Set<String> userUids = new HashSet<>(state.readyUsers);
         Map<String, Integer> damages = new HashMap<>();
         String gameOverLoser = "NONE";
 
