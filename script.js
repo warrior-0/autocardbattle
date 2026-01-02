@@ -16,6 +16,10 @@ async function setupFirebase() {
         const config = await response.json();
         firebase.initializeApp(config);
 
+        // ✅ 추가: 주사위 마스터 데이터를 미리 로드하여 렌더링 오류 방지
+        const diceRes = await fetch(`${SERVER_URL}/api/dice/list`);
+        allDice = await diceRes.json();
+
         // 인증 상태 확인
         firebase.auth().onAuthStateChanged((user) => {
             if (user) {
@@ -586,7 +590,6 @@ function renderHand() {
     });
 }
 
-// [보완] onTileClickForBattle 함수
 function onTileClickForBattle(x, y) {
     // 1. 선택된 주사위가 있는지 확인
     if (!selectedDiceFromHand) {
@@ -600,13 +603,25 @@ function onTileClickForBattle(x, y) {
         return;
     }
 
-    // 3. 내 진영(왼쪽 x < 4)에만 배치 가능한지 체크 (데이터 기준)
-    const targetTile = mapData.find(t => t.x === x && t.y === y);
-    if (!targetTile || targetTile.tileType !== 'MY_TILE') {
+    // 3. 대상 타일 데이터 및 UI 요소 가져오기
+    const tileInfo = mapData.find(t => t.x === x && t.y === y);
+    const tileEl = document.getElementById(`tile-${x}-${y}`);
+
+    if (!tileInfo || !tileEl) return;
+
+    // 4. 내 진영 체크 (MY_TILE 여부)
+    if (tileInfo.tileType !== 'MY_TILE') {
         alert("자신의 타일에만 주사위를 배치할 수 있습니다!");
         return;
     }
 
+    // 5. ✅ 이전 라운드 주사위 혹은 현재 배치된 주사위 중복 체크
+    if (tileInfo.hasDice || tileEl.classList.contains('placed-dice')) {
+        alert("이미 주사위가 있는 칸입니다!");
+        return;
+    }
+
+    // 6. 서버로 배치 정보 전송
     const payload = {
         type: "PLACE",
         sender: currentUser.firebaseUid,
@@ -615,17 +630,18 @@ function onTileClickForBattle(x, y) {
         turn: currentTurn
     };
 
-    // 서버 전송
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
     
-    // UI 피드백: 배치된 주사위 이모지 표시
-    const tileEl = document.getElementById(`tile-${x}-${y}`);
+    // 7. UI 즉시 반영
     tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
     tileEl.style.fontSize = "24px";
+    tileEl.classList.add('placed-dice'); // ✅ 시각적 잠금 클래스 추가
+    tileInfo.hasDice = true; // ✅ 로컬 데이터 동기화
     
-    // 선택 해제
+    // 8. 손패 관리 및 선택 초기화
+    myHand = myHand.filter(d => d !== selectedDiceFromHand); // ✅ 배치한 주사위는 내 손패에서 제거
     selectedDiceFromHand = null;
-    document.querySelectorAll('#battle-hand .dice-card').forEach(c => c.classList.remove('selected'));
+    renderHand(); // ✅ 주사위가 사라진 손패 다시 그리기
 }
 
 // 서버에서 오는 실시간 메시지 처리기
@@ -709,29 +725,27 @@ function updateTimerUI() {
     if (timerEl) timerEl.innerText = `남은 시간: ${timeLeft}초`;
 }
 
-// [추가] 3턴 종료 후 모든 주사위를 화면에 그리는 함수
+// [수정] renderFullMap: 이전 라운드 정보를 로컬 mapData에 저장하여 유지합니다.
 function renderFullMap(placements) {
     if (!placements) return;
 
     placements.forEach(p => {
         const tile = document.getElementById(`tile-${p.x}-${p.y}`);
-        const mapInfo = mapData.find(m => m.x === p.x && m.y === p.y);
+        // ✅ 중요: 내 로컬 데이터(mapData)에도 주사위 존재 여부를 기록합니다.
+        const tileInfo = mapData.find(m => m.x === p.x && m.y === p.y);
         
-        if (tile && mapInfo) {
-            // 주사위 이모지 설정
+        if (tile && tileInfo) {
             tile.innerText = getDiceEmoji(p.diceType); 
-            
-            // 진영별 스타일 적용
-            if (mapInfo.tileType === 'MY_TILE') {
-                tile.style.backgroundColor = "#3498db"; // 내 진영 푸른색
-                tile.style.color = "white";
-            } else if (mapInfo.tileType === 'ENEMY_TILE') {
-                tile.style.backgroundColor = "#e74c3c"; // 적 진영 붉은색
-                tile.style.color = "white";
+            tile.classList.add('placed-dice'); // 시각적 확정
+            tileInfo.hasDice = true; // ✅ 데이터상 주사위 존재 기록
+            tileInfo.diceType = p.diceType;
+
+            // 진영별 스타일 유지
+            if (tileInfo.tileType === 'MY_TILE') {
+                tile.style.backgroundColor = "#3498db";
+            } else if (tileInfo.tileType === 'ENEMY_TILE') {
+                tile.style.backgroundColor = "#e74c3c";
             }
-            
-            // 배치된 상태로 확정 (클릭 방지 클래스 추가)
-            tile.classList.add('placed-dice');
         }
     });
 }
