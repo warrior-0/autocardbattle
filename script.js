@@ -458,8 +458,9 @@ async function startMatch() {
             if (overlay) overlay.style.display = 'none';
             if (matchTimer) clearTimeout(matchTimer);
 
-            // ✅ 추가: 매칭 성공 시 홈 화면을 확실히 숨깁니다.
-            document.getElementById('home-screen').style.display = 'none';
+            // ✅ 추가: 전투 화면에서는 '홈으로' 버튼 숨기기
+            const backBtn = document.querySelector('#editor-section .back-btn');
+            if (backBtn) backBtn.style.display = 'none';
 
             // 1. 전투 전용 UI 표시
             document.getElementById('battle-header').style.display = 'flex';
