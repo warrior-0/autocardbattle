@@ -2,7 +2,7 @@ package com.example.autocardbattle.service;
 
 import com.example.autocardbattle.controller.BattleController;
 import com.example.autocardbattle.dto.BattleMessage;
-import com.example.autocardbattle.dto.BattleMessage.CombatLogEntry; // CombatLogEntry 임포트 필수
+import com.example.autocardbattle.dto.BattleMessage.CombatLogEntry;
 import com.example.autocardbattle.entity.DiceEntity;
 import com.example.autocardbattle.repository.DiceRepository;
 import com.example.autocardbattle.repository.UserRepository;
@@ -22,10 +22,7 @@ public class BattleService {
     @Autowired private DiceRepository diceRepository;
     @Autowired private SimpMessageSendingOperations messagingTemplate;
 
-    // 게임 상태 관리
     private Map<String, GameState> games = new ConcurrentHashMap<>();
-
-    // 전략 패턴을 위한 핸들러 맵
     private final Map<String, AbilityHandler> abilityHandlers = new HashMap<>();
 
     public static class GameState {
@@ -46,14 +43,10 @@ public class BattleService {
     }
 
     public static class SimUnit {
-        String uid; // 유저 ID
-        int x, y;   // 위치
-        String type; // 주사위 타입 (FIRE, SNIPER 등)
-        int hp, maxHp; // 현재 및 최대 체력
-        double nextAttackTime; // 다음 공격 가능 시간 (ms)
-        DiceEntity stats; // DB에서 가져온 주사위 스탯
+        String uid; int x, y; String type; int hp; int maxHp; 
+        double nextAttackTime; // 정밀한 계산을 위해 double 유지
+        DiceEntity stats;
         
-        // 생성자: 배치 정보(p)와 DB 스탯(diceStats)을 받아 초기화합니다
         SimUnit(BattleMessage p, DiceEntity diceStats) {
             this.uid = p.getSender();
             this.x = p.getX();
@@ -62,51 +55,52 @@ public class BattleService {
             this.stats = diceStats;
             this.hp = diceStats.getHp();
             this.maxHp = diceStats.getHp();
+            
+            // ✅ [핵심 1] 랜덤 제거 & 공속 기반 고정 타이밍
+            // 같은 유닛끼리는 100% 동일한 타이밍에 첫 공격을 합니다.
             double attackCycle = 1000.0 / this.stats.getAps();
             this.nextAttackTime = attackCycle; 
         }
     }
 
-    // 전략 패턴 인터페이스
+    // ✅ [핵심 2] 핸들러 인터페이스 변경: 데미지를 즉시 입히지 않고 Map에 담습니다.
     @FunctionalInterface
     interface AbilityHandler {
-        void execute(SimUnit attacker, SimUnit target, List<SimUnit> allUnits, List<CombatLogEntry> logs, long time);
+        void execute(SimUnit attacker, SimUnit target, List<SimUnit> allUnits, List<CombatLogEntry> logs, long time, Map<SimUnit, Integer> damageQueue);
     }
 
-    // ✅ 서버 시작 시 주사위별 특수 능력 로직 초기화
     @PostConstruct
     public void initStrategies() {
-        // 1. 🔥 FIRE: 타겟 + 주변 1칸 스플래시 (데미지 절반)
-        abilityHandlers.put("FIRE", (attacker, target, allUnits, logs, time) -> {
+        // 1. 🔥 FIRE
+        abilityHandlers.put("FIRE", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dmg = attacker.stats.getDamage();
-            target.hp -= dmg;
+            // target.hp -= dmg; 대신 damageQueue에 추가
+            damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "FIRE", time));
 
-            // 람다 내부에서 사용할 변수 (final 효과)
             final int splashDmg = dmg / 2;
-            
             allUnits.stream()
                 .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0 && u != target)
                 .filter(u -> getDistance(target.x, target.y, u.x, u.y) <= 1)
                 .forEach(splashTarget -> {
-                    splashTarget.hp -= splashDmg;
+                    damageQueue.merge(splashTarget, splashDmg, Integer::sum);
                     logs.add(new CombatLogEntry(target.x, target.y, splashTarget.x, splashTarget.y, splashDmg, "FIRE_SPLASH", time));
                 });
         });
 
-        // 2. 🎯 SNIPER: 거리가 멀수록 데미지 증가
-        abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time) -> {
+        // 2. 🎯 SNIPER
+        abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
             int finalDmg = attacker.stats.getDamage() + (dist * 10);
             
-            target.hp -= finalDmg;
+            damageQueue.merge(target, finalDmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, finalDmg, "SNIPER", time));
         });
 
-        // 3. ⚡ ELECTRIC: 타겟 + 가장 가까운 적 1명 전이
-        abilityHandlers.put("ELECTRIC", (attacker, target, allUnits, logs, time) -> {
+        // 3. ⚡ ELECTRIC
+        abilityHandlers.put("ELECTRIC", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dmg = attacker.stats.getDamage();
-            target.hp -= dmg;
+            damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "ELECTRIC", time));
 
             SimUnit chainTarget = allUnits.stream()
@@ -115,41 +109,38 @@ public class BattleService {
                 .orElse(null);
 
             if (chainTarget != null && getDistance(target.x, target.y, chainTarget.x, chainTarget.y) <= 2) {
-                chainTarget.hp -= dmg;
+                damageQueue.merge(chainTarget, dmg, Integer::sum);
                 logs.add(new CombatLogEntry(target.x, target.y, chainTarget.x, chainTarget.y, dmg, "ELECTRIC_CHAIN", time));
             }
         });
 
-        // 4. ⚔️ 기본 공격 (SWORD, WIND 등)
-        AbilityHandler normalHandler = (attacker, target, allUnits, logs, time) -> {
+        // 4. ⚔️ NORMAL
+        AbilityHandler normalHandler = (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dmg = attacker.stats.getDamage();
-            target.hp -= dmg;
+            damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "NORMAL", time));
         };
         
         abilityHandlers.put("SWORD", normalHandler);
-        abilityHandlers.put("WIND", normalHandler); // WIND는 DB의 높은 APS(공속)로 차별화됨
+        abilityHandlers.put("WIND", normalHandler);
     }
 
-    // 등록되지 않은 주사위를 위한 기본 핸들러
-    private final AbilityHandler defaultHandler = (attacker, target, allUnits, logs, time) -> {
+    private final AbilityHandler defaultHandler = (attacker, target, allUnits, logs, time, damageQueue) -> {
         int dmg = attacker.stats.getDamage();
-        target.hp -= dmg;
+        damageQueue.merge(target, dmg, Integer::sum);
         logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "NORMAL", time));
     };
 
     // 메인 로직 처리
-    // ✅ [핵심 수정] processBattle 메서드 전체를 수정하세요.
     public BattleMessage processBattle(String roomId, BattleMessage msg) {
         GameState state = games.computeIfAbsent(roomId, k -> new GameState());
 
-        // 🔒 [중요] 동기화 블록 시작: 이 방(state)에 대한 처리는 한 번에 하나씩만!
         synchronized (state) {
+            // 턴 검증: 이전 라운드 메시지 차단
             if (msg.getTurn() != state.turn) {
                 return null;
             }
-            
-            // 1. 유닛 배치 처리 (PLACE)
+
             if ("PLACE".equals(msg.getType())) {
                 List<BattleMessage> userPlacements = state.placements.computeIfAbsent(msg.getSender(), k -> new ArrayList<>());
                 boolean alreadyExists = userPlacements.stream()
@@ -157,12 +148,9 @@ public class BattleService {
 
                 if (!alreadyExists) {
                     userPlacements.add(msg);
-                    
-                    // 이번 라운드 목표 개수 달성 시 준비 완료
                     if (userPlacements.size() >= state.turn * 3) {
                         state.readyUsers.add(msg.getSender());
                     } else {
-                        // 아직 덜 채웠으면 리필만 전송
                         List<String> nextHand = generateRandomHand(msg.getSender());
                         BattleMessage refillMsg = new BattleMessage();
                         refillMsg.setType("DICE_REFILL");
@@ -172,40 +160,31 @@ public class BattleService {
                 }
             }
 
-            // 2. 시간 초과 또는 강제 완료 처리 (COMPLETE)
             if ("COMPLETE".equals(msg.getType())) {
                 state.readyUsers.add(msg.getSender());
             }
 
-            // 3. 전투 시작 체크 (두 유저 모두 준비됨)
             if (state.readyUsers.size() >= 2) {
                 processBattleResult(state, roomId);
             } else if (state.readyUsers.contains(msg.getSender())) {
-                // 나는 준비됐는데 상대가 안 된 경우 (대기 메시지)
                 BattleMessage waitMsg = new BattleMessage();
                 waitMsg.setType("WAIT_OPPONENT");
                 messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), waitMsg);
             }
-        } // 🔒 동기화 블록 끝
-
+        }
         return null;
     }
-    
-    // 전투 결과 처리 및 전송
+
     private void processBattleResult(GameState state, String roomId) {
         List<BattleMessage> allPlacements = new ArrayList<>();
         state.placements.values().forEach(allPlacements::addAll);
 
-        // 1. DB에서 주사위 스탯 로드
         List<DiceEntity> allDiceInfo = diceRepository.findAll();
         Map<String, DiceEntity> statMap = allDiceInfo.stream()
                 .collect(Collectors.toMap(DiceEntity::getDiceType, d -> d));
 
-        // 2. 전투 시뮬레이션
         SimulationResult simResult = simulateCombat(state, statMap);
 
-        // 3. 결과 판정 (남은 유닛 수 비교)
-        // '준비 완료'된 모든 유저(배치 완료 OR 타임아웃)를 기준으로 잡습니다.
         Set<String> userUids = new HashSet<>(state.readyUsers);
         Map<String, Integer> damages = new HashMap<>();
         String gameOverLoser = "NONE";
@@ -221,26 +200,20 @@ public class BattleService {
             int p1Survivors = simResult.survivorCounts.getOrDefault(p1, 0);
             int p2Survivors = simResult.survivorCounts.getOrDefault(p2, 0);
 
-            // 적게 남은 쪽 1 데미지
             if (p1Survivors < p2Survivors) {
-                damages.put(p1, 1);
-                damages.put(p2, 0);
+                damages.put(p1, 1); damages.put(p2, 0);
                 state.playerHps.put(p1, state.playerHps.get(p1) - 1);
             } else if (p2Survivors < p1Survivors) {
-                damages.put(p1, 0);
-                damages.put(p2, 1);
+                damages.put(p1, 0); damages.put(p2, 1);
                 state.playerHps.put(p2, state.playerHps.get(p2) - 1);
             } else {
-                damages.put(p1, 0);
-                damages.put(p2, 0);
+                damages.put(p1, 0); damages.put(p2, 0);
             }
 
-            // 게임 종료 체크
             if (state.playerHps.get(p1) <= 0) gameOverLoser = p1;
             else if (state.playerHps.get(p2) <= 0) gameOverLoser = p2;
         }
 
-        // 4. 결과 전송
         for (String myUid : userUids) {
             String opponentUid = userUids.stream().filter(u -> !u.equals(myUid)).findFirst().orElse(null);
             
@@ -248,8 +221,11 @@ public class BattleService {
             msg.setType("REVEAL");
             msg.setAllPlacements(allPlacements);
             msg.setCombatLogs(simResult.logs);
-            msg.setDamageToP1(damages.getOrDefault(myUid, 0)); // 나에게
-            msg.setDamageToP2(damages.getOrDefault(opponentUid, 0)); // 적에게
+            msg.setDamageToP1(damages.getOrDefault(myUid, 0));
+            msg.setDamageToP2(damages.getOrDefault(opponentUid, 0));
+            msg.setRemainingMyHp(state.playerHps.getOrDefault(myUid, 5));
+            msg.setRemainingEnemyHp(state.playerHps.getOrDefault(opponentUid, 5));
+            msg.setTurn(state.turn + 1);
 
             if (!"NONE".equals(gameOverLoser)) {
                 msg.setLoserUid(gameOverLoser);
@@ -268,33 +244,25 @@ public class BattleService {
         }
     }
 
-    // 시뮬레이션 내부 로직
     private SimulationResult simulateCombat(GameState state, Map<String, DiceEntity> statMap) {
         List<CombatLogEntry> logs = new ArrayList<>();
-
         List<SimUnit> units = new ArrayList<>();
-        // statMap에서 해당 주사위의 데이터를 찾아서 생성자에 넘겨줘야 합니다.
+        
         state.placements.values().forEach(list -> list.forEach(p -> {
             DiceEntity diceStats = statMap.get(p.getDiceType());
             units.add(new SimUnit(p, diceStats));
         }));
 
-        // 30초(30000ms) 시뮬레이션
         for (long time = 0; time < 30000; time += 100) {
+            // 조기 종료 체크
+            long livingTeams = units.stream().filter(u -> u.hp > 0).map(u -> u.uid).distinct().count();
+            if (livingTeams <= 1) break;
+
+            // ✅ [핵심 3] 이번 틱(0.1초) 동안 발생한 모든 데미지를 저장할 장바구니
+            Map<SimUnit, Integer> tickDamageAccumulator = new HashMap<>();
+
             for (SimUnit attacker : units) {
                 if (attacker.hp <= 0) continue;
-
-                // ✅ [추가] 살아있는 팀의 수 체크 -> 1팀 이하면 전투 조기 종료
-                long livingTeams = units.stream()
-                    .filter(u -> u.hp > 0)
-                    .map(u -> u.uid) // 유저 ID 추출
-                    .distinct()      // 중복 제거 (팀 개수 확인)
-                    .count();
-    
-                if (livingTeams <= 1) {
-                    // 더 이상 싸울 상대가 없으므로 루프 종료
-                    break; 
-                }
 
                 if (time >= attacker.nextAttackTime) {
                     List<SimUnit> targets = units.stream()
@@ -304,16 +272,20 @@ public class BattleService {
 
                     if (!targets.isEmpty()) {
                         SimUnit target = targets.get(new Random().nextInt(targets.size()));
-
-                        // ✅ 전략 패턴으로 능력 실행 (깔끔!)
                         AbilityHandler handler = abilityHandlers.getOrDefault(attacker.type, defaultHandler);
-                        handler.execute(attacker, target, units, logs, time);
-
-                        // 쿨타임 적용
-                        attacker.nextAttackTime = time + (long)(1000 / attacker.stats.getAps());
+                        
+                        // 데미지를 즉시 적용하지 않고 장바구니에 담음
+                        handler.execute(attacker, target, units, logs, time, tickDamageAccumulator);
+                        
+                        attacker.nextAttackTime = time + (1000.0 / attacker.stats.getAps());
                     }
                 }
             }
+
+            // ✅ [핵심 4] 모든 유닛의 공격 계산이 끝난 후, 데미지 일괄 적용
+            tickDamageAccumulator.forEach((unit, damage) -> {
+                unit.hp -= damage;
+            });
         }
 
         Map<String, Integer> survivors = new HashMap<>();
