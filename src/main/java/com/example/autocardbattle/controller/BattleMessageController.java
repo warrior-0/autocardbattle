@@ -19,19 +19,24 @@ public class BattleMessageController {
 
     @MessageMapping("/battle/{roomId}/place")
     public void handlePlacement(@DestinationVariable String roomId, BattleMessage message) {
-        // 1. PLACE 타입일 때: 한 명이 주사위를 놓으면 상대방도 알아야 하므로 방 전체에 브로드캐스팅합니다.
+        // 상대방에게 배치 정보 브로드캐스팅
         if ("PLACE".equals(message.getType())) {
             messagingTemplate.convertAndSend("/topic/battle/" + roomId, message);
         }
-
-        // 2. 비즈니스 로직 처리 (배치 저장, COMPLETE 확인, 턴 전환 등)
-        // battleService.processBattle 안에서 개별 유저 전송(nextHand 등)까지 처리하게 하는 것이 가장 깔끔합니다.
         battleService.processBattle(roomId, message);
     }
     
+    // ✅ [추가/수정] READY 핸들러
     @MessageMapping("/battle/{roomId}/ready")
     public void handleReady(@DestinationVariable String roomId, BattleMessage message) {
-        // 유저가 게임 방에 들어와서 준비되었을 때 처리
-        battleService.processBattle(roomId, message);
+        String userUid = message.getSender();
+        
+        // 준비 명단에 추가
+        BattleController.roomReadyStatus.computeIfAbsent(roomId, k -> new HashSet<>()).add(userUid);
+        
+        // 두 명이 모이면 게임 시작 (싱크 맞춤)
+        if (BattleController.roomReadyStatus.get(roomId).size() >= 2) {
+            battleService.initiateGameStart(roomId);
+        }
     }
 }
