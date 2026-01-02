@@ -25,6 +25,9 @@ public class BattleMessage {
     private int remainingMyHp;    // 나의 남은 체력
     private int remainingEnemyHp; // 적의 남은 체력
 
+    // ✅ [추가] 맵 데이터 (공평한 시작을 위해 여기서 전송)
+    private String mapData;
+
     private List<CombatLogEntry> combatLogs;
 
     @Data
