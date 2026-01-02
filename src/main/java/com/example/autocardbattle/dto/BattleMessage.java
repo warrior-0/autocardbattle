@@ -1,21 +1,41 @@
 package com.example.autocardbattle.dto;
 
 import lombok.Data;
-import java.util.List; // List를 사용하기 위해 임포트 추가
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
+import java.util.List;
 
 @Data
 public class BattleMessage {
-    private String type;    // "PLACE", "REVEAL", "TURN_PROGRESS", "WAIT_OPPONENT"
-    private String sender;  // 보낸 사람 (UID)
+    private String type;
+    private String sender;
     private int x;
     private int y;
     private String diceType;
     private int turn;
-    private List<CombatLogEntry> combatLogs;
 
-    // ✅ 추가된 필드: 승패 판정 결과와 전체 배치 정보를 담기 위함
     private String loserUid; 
     private List<BattleMessage> allPlacements;
-    private List<String> nextHand; // ✅ 추가: 다음 턴에 사용할 주사위 리스트
-    private long timeDelay;    // 전투 시작 후 몇 ms 뒤에 발사되는지
+    private List<String> nextHand;
+
+    // 전투 데미지 필드
+    private int damageToP1;
+    private int damageToP2;
+
+    // 전투 로그 리스트
+    private List<CombatLogEntry> combatLogs;
+
+    // 전투 로그 엔트리 클래스 정의
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CombatLogEntry {
+        private int attackerX;
+        private int attackerY;
+        private int targetX;
+        private int targetY;
+        private int damage;
+        private String attackType;
+        private long timeDelay;
+    }
 }
