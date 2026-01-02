@@ -727,7 +727,7 @@ function handleBattleMessage(data) {
                 const counter = document.getElementById('combat-countdown');
                 if(counter) counter.innerText = combatTime;
                 if(combatTime <= 0) clearInterval(combatInterval);
-            }, combatDurationSec * 1000);
+            }, 1000);
 
             // 5. 30초 후 결과 반영 및 다음 라운드
             setTimeout(() => {
