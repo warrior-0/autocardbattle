@@ -139,70 +139,55 @@ public class BattleService {
     };
 
     // 메인 로직 처리
+    // ✅ [핵심 수정] processBattle 메서드 전체를 수정하세요.
     public BattleMessage processBattle(String roomId, BattleMessage msg) {
         GameState state = games.computeIfAbsent(roomId, k -> new GameState());
 
-        // 배치 처리
-        if ("PLACE".equals(msg.getType())) {
-            List<BattleMessage> userPlacements = state.placements.computeIfAbsent(msg.getSender(), k -> new ArrayList<>());
-            boolean alreadyExists = userPlacements.stream()
-                    .anyMatch(p -> p.getX() == msg.getX() && p.getY() == msg.getY());
+        // 🔒 [중요] 동기화 블록 시작: 이 방(state)에 대한 처리는 한 번에 하나씩만!
+        synchronized (state) {
+            
+            // 1. 유닛 배치 처리 (PLACE)
+            if ("PLACE".equals(msg.getType())) {
+                List<BattleMessage> userPlacements = state.placements.computeIfAbsent(msg.getSender(), k -> new ArrayList<>());
+                boolean alreadyExists = userPlacements.stream()
+                        .anyMatch(p -> p.getX() == msg.getX() && p.getY() == msg.getY());
 
-            if (!alreadyExists) {
-                userPlacements.add(msg);
-                // ✅ [핵심 수정] 매 라운드(턴)마다 양쪽 유저가 배치를 마쳤는지 확인
-                // state.turn * 3: 1라운드면 3개, 2라운드면 총 6개, 3라운드면 총 9개...
-                long readyPlayers = state.placements.values().stream()
-                        .filter(list -> list.size() >= state.turn * 3) 
-                        .count();
-
-                // 양쪽(2명) 모두 이번 라운드 분량을 다 놓았다면 즉시 전투 시작
-                if (readyPlayers >= 2) {
-                    processBattleResult(state, roomId);
-                } else {
-                    // 아직 배치가 남은 유저에게만 실시간 리필 전송
-                    List<String> nextHand = generateRandomHand(msg.getSender());
-                    BattleMessage refillMsg = new BattleMessage();
-                    refillMsg.setType("DICE_REFILL");
-                    refillMsg.setNextHand(nextHand);
-                    messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), refillMsg);
+                if (!alreadyExists) {
+                    userPlacements.add(msg);
+                    
+                    // 이번 라운드 목표 개수 달성 시 준비 완료
+                    if (userPlacements.size() >= state.turn * 3) {
+                        state.readyUsers.add(msg.getSender());
+                    } else {
+                        // 아직 덜 채웠으면 리필만 전송
+                        List<String> nextHand = generateRandomHand(msg.getSender());
+                        BattleMessage refillMsg = new BattleMessage();
+                        refillMsg.setType("DICE_REFILL");
+                        refillMsg.setNextHand(nextHand);
+                        messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), refillMsg);
+                    }
                 }
             }
-            return null;
-        }
 
-        // 턴 완료 처리
-        if ("COMPLETE".equals(msg.getType())) {
-            state.readyUsers.add(msg.getSender());
+            // 2. 시간 초과 또는 강제 완료 처리 (COMPLETE)
+            if ("COMPLETE".equals(msg.getType())) {
+                state.readyUsers.add(msg.getSender());
+            }
 
+            // 3. 전투 시작 체크 (두 유저 모두 준비됨)
             if (state.readyUsers.size() >= 2) {
-                if (state.turn < 3) {
-                    state.turn++;
-                    state.readyUsers.clear();
-                    
-                    // 다음 턴 손패 지급
-                    for (String userUid : state.placements.keySet()) {
-                        BattleMessage personalMsg = new BattleMessage();
-                        personalMsg.setType("TURN_PROGRESS");
-                        personalMsg.setTurn(state.turn);
-                        personalMsg.setNextHand(generateRandomHand(userUid));
-                        messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + userUid, personalMsg);
-                    }
-                    return null;
-                } else {
-                    // ✅ 3턴 종료: 전투 시뮬레이션 및 결과 처리
-                    processBattleResult(state, roomId);
-                    return null;
-                }
-            } else {
+                processBattleResult(state, roomId);
+            } else if (state.readyUsers.contains(msg.getSender())) {
+                // 나는 준비됐는데 상대가 안 된 경우 (대기 메시지)
                 BattleMessage waitMsg = new BattleMessage();
                 waitMsg.setType("WAIT_OPPONENT");
-                return waitMsg;
+                messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), waitMsg);
             }
-        }
+        } // 🔒 동기화 블록 끝
+
         return null;
     }
-
+    
     // 전투 결과 처리 및 전송
     private void processBattleResult(GameState state, String roomId) {
         List<BattleMessage> allPlacements = new ArrayList<>();
