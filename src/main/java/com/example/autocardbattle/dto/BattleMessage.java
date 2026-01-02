@@ -20,7 +20,8 @@ public class BattleMessage {
     private List<BattleMessage> allPlacements;
     private List<String> nextHand;
 
-    // ✅ [수정] 정확한 체력 동기화를 위한 필드
+    private int damageToP1;
+    private int damageToP2;
     private int remainingMyHp;    // 나의 남은 체력
     private int remainingEnemyHp; // 적의 남은 체력
 
