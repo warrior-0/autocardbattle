@@ -719,11 +719,21 @@ function handleBattleMessage(data) {
 
         case "REVEAL":
             if (battleTimer) clearInterval(battleTimer);
-            renderFullMap(data.allPlacements); 
-            applyDamage(data.loserUid);
-            currentTurn = 1;
-            selectedDiceFromHand = null;
-            renderHand();
+            
+            // 1. 전체 맵 공개
+            renderFullMap(data.allPlacements);
+            
+            // 2. 전투 페이즈 시작 (UI 변경)
+            document.getElementById('battle-hand').innerHTML = "<h3>🔥 전투 진행 중... (30초)</h3>";
+            document.getElementById('battle-timer').innerText = "전투 중!";
+            
+            // 3. 데미지 적용 (백엔드 계산 결과)
+            applyDamage(data.damageToP1, data.damageToP2);
+
+            // ✅ 4. 30초 대기 후 다음 라운드 시작
+            setTimeout(() => {
+                startNextRound(data.nextHand); // 서버가 미리 준 다음 손패 사용
+            }, 30000); // 30초 딜레이
             break;
             
         case "WAIT_OPPONENT":
@@ -843,6 +853,26 @@ function applyDamage(loserUid) {
 function updateHpUI(elementId, hp) {
     const hpBar = document.getElementById(elementId);
     hpBar.innerText = "❤️".repeat(hp) + "🖤".repeat(5 - hp);
+}
+
+// ✅ 다음 라운드 시작 함수
+function startNextRound(nextHand) {
+    alert("⚔️ 다음 라운드가 시작됩니다! 배치를 준비하세요.");
+    
+    // 1. 변수 및 상태 초기화
+    currentTurn = 1;
+    placementCount = 0;
+    selectedDiceFromHand = null;
+    
+    // 2. 맵의 주사위 표시 제거 (데이터는 유지하되 UI에서 'placed-dice' 클래스 등 정리 필요 시 수행)
+    // (현재 로직상 hasDice가 유지되므로 맵은 그대로 둡니다. 만약 죽은 주사위를 없애려면 여기서 처리)
+    
+    // 3. 서버가 준 새로운 손패 적용
+    myHand = nextHand || []; 
+    
+    // 4. UI 복구
+    renderHand();
+    startBattleTimer(); // 60초 타이머 다시 시작
 }
 
 window.addEventListener('DOMContentLoaded', () => {
