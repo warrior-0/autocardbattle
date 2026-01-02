@@ -102,3 +102,43 @@
 #battle-hand .dice-card:hover {
     background: #d4e6f1;
 }
+
+/* style.css 하단에 추가 */
+
+/* 투사체 스타일 */
+.projectile {
+    position: absolute;
+    width: 15px;
+    height: 15px;
+    background-color: #ffcc00; /* 기본 노랑 */
+    border-radius: 50%; /* 원 모양 */
+    z-index: 100;
+    pointer-events: none;
+    box-shadow: 0 0 5px orange;
+    transition: all 0.3s linear; /* 부드러운 이동 */
+}
+
+/* 유닛 위 미니 체력바 컨테이너 */
+.hp-bar-container {
+    position: absolute;
+    top: -5px;
+    left: 0;
+    width: 100%;
+    height: 5px;
+    background: #555;
+    border-radius: 2px;
+}
+
+/* 실제 체력 (녹색) */
+.hp-bar-fill {
+    height: 100%;
+    background: #2ecc71;
+    width: 100%;
+    border-radius: 2px;
+    transition: width 0.2s;
+}
+
+/* 타일 위치 기준 잡기 위해 */
+.tile {
+    position: relative; 
+}
