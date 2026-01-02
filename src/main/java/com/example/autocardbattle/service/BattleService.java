@@ -4,6 +4,7 @@ import com.example.autocardbattle.controller.BattleController;
 import com.example.autocardbattle.dto.BattleMessage;
 import com.example.autocardbattle.dto.BattleMessage.CombatLogEntry;
 import com.example.autocardbattle.entity.DiceEntity;
+import com.example.autocardbattle.entity.MapTileEntity;
 import com.example.autocardbattle.repository.DiceRepository;
 import com.example.autocardbattle.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
