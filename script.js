@@ -495,9 +495,9 @@ async function startMatch() {
                 body: JSON.stringify(currentUser.selectedDeck.split(","))
             });
             const startData = await startRes.json();
-            
+
+            // 맵 데이터 저장 및 로드 (하지만 visibility: hidden 상태라 안 보임)
             if (startData.mapData && startData.mapData.length > 0) {
-                // ✅ 핵심: 나중에 GAME_START 메시지를 받았을 때 반전시키기 위해 맵 문자열을 저장해둡니다.
                 window.currentMapString = startData.mapData[0].mapData;
                 loadMapToGrid(window.currentMapString, true);
             }
