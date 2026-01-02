@@ -16,11 +16,11 @@ public class DataInitialize implements CommandLineRunner {
     public void run(String... args) throws Exception {
         // 주사위 데이터가 하나도 없을 때만 실행 (중복 생성 방지)
         if (diceRepository.count() == 0) {
-            saveDice("FIRE", "불 주사위", 40, 2, 0.5, "대상 주변 1칸 광역 피해", "#e74c3c");
-            saveDice("WIND", "바람 주사위", 15, 3, 2.0, "매우 빠른 공격 속도", "#3498db");
-            saveDice("SWORD", "검 주사위", 80, 1, 0.8, "강력한 근접 일격", "#2c3e50");
-            saveDice("ELECTRIC", "전기 주사위", 30, 2, 1.0, "주변 적 1명 전이 피해", "#f1c40f");
-            saveDice("SNIPER", "저격 주사위", 25, 4, 0.7, "거리당 데미지 대폭 증가", "#27ae60");
+            saveDice("FIRE", 1000, "불 주사위", 40, 2, 0.5, "대상 주변 1칸 광역 피해", "#e74c3c");
+            saveDice("WIND", 1000, "바람 주사위", 15, 3, 2.0, "매우 빠른 공격 속도", "#3498db");
+            saveDice("SWORD", 1000, "검 주사위", 80, 1, 0.8, "강력한 근접 일격", "#2c3e50");
+            saveDice("ELECTRIC", 1000, "전기 주사위", 30, 2, 1.0, "주변 적 1명 전이 피해", "#f1c40f");
+            saveDice("SNIPER", 1000, "저격 주사위", 25, 4, 0.7, "거리당 데미지 대폭 증가", "#27ae60");
         }
     }
 
@@ -28,6 +28,7 @@ public class DataInitialize implements CommandLineRunner {
         DiceEntity d = new DiceEntity();
         d.setDiceType(type);
         d.setName(name);
+        d.setHp(hp);
         d.setDamage(dmg);
         d.setRange(rng);
         d.setAps(aps);
