@@ -24,7 +24,7 @@ public class DataInitialize implements CommandLineRunner {
         }
     }
 
-    private void saveDice(String type, String name, int dmg, int rng, double aps, String desc, String color) {
+    private void saveDice(String type, String name, int hp, int dmg, int rng, double aps, String desc, String color) {
         DiceEntity d = new DiceEntity();
         d.setDiceType(type);
         d.setName(name);
