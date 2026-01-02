@@ -578,7 +578,7 @@ function renderHand() {
             card.innerHTML = `
                 <div class="dice-icon" style="color:${diceInfo.color}">${getDiceEmoji(diceType)}</div>
                 <h4>${diceInfo.name}</h4>
-                <div class="dice-stats">공격:${diceInfo.damage} | 사거리:${diceInfo.range}</div>
+                <div class="dice-stats">사거리:${diceInfo.range}</div>
             `;
 
             // 주사위 클릭 시 선택 효과
