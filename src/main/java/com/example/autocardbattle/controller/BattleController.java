@@ -88,11 +88,6 @@ public class BattleController {
     // ✅ [수정] startBattle: 이제 맵 데이터만 주는 역할로 축소됩니다. (핸드는 웹소켓으로 받음)
     @PostMapping("/start")
     public BattleResponse startBattle(@RequestParam String userUid, @RequestBody List<String> userDeck) {
-        String roomId = userRooms.get(userUid);
-        List<MapTileEntity> randomMap = (roomId != null && roomMaps.containsKey(roomId)) 
-                                        ? roomMaps.get(roomId) 
-                                        : mapRepository.findRandomMap();
-        
         // 핸드는 빈 리스트로 보냄 (GAME_START 메시지로 따로 받을 것임)
         return new BattleResponse(randomMap, new ArrayList<>(), 1);
     }
