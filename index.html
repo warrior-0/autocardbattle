@@ -15,13 +15,11 @@
     <div class="container">
         <div id="auth-form" class="auth-card">
             <h1 id="auth-title">로그인</h1>
-            
             <div id="nickname-group" style="display: none;">
                 <input type="text" id="user-nickname" placeholder="닉네임 입력">
             </div>
             <input type="email" id="user-email" placeholder="이메일 (@)">
             <input type="password" id="user-password" placeholder="비밀번호">
-            
             <div class="auth-buttons">
                 <button id="main-auth-btn" class="tool-btn active" onclick="handleAuthAction()">로그인</button>
                 <p id="auth-switch-text">계정이 없으신가요? <a href="#" onclick="toggleAuthMode(event)">회원가입</a></p>
@@ -33,27 +31,23 @@
                 <h1 id="welcome-msg">용사님, 환영합니다!</h1>
                 <p id="user-status-text">전투 준비를 마쳐주세요.</p>
             </div>
-            
             <div class="menu-container">
                 <div class="menu-card battle" onclick="navTo('battle')">
                     <div class="icon">⚔️</div>
                     <h2>게임 플레이</h2>
                     <p>랜덤 전장으로 출격</p>
                 </div>
-
                 <div class="menu-card deck" onclick="showDeckEditor()">
                     <div class="icon">🎲</div>
                     <h2>주사위 덱</h2>
                     <p>나만의 조합 구성</p>
                 </div>
-
                 <div class="menu-card editor" onclick="navTo('editor')">
                     <div class="icon">🏗️</div>
                     <h2>맵 빌드</h2>
                     <p>새로운 전장 설계</p>
                 </div>
             </div>
-
             <div class="home-footer">
                 <button onclick="handleLogout()" class="logout-btn">로그아웃</button>
             </div>
@@ -62,15 +56,24 @@
         <div id="editor-section" style="display: none;">
             <div class="editor-header">
                 <button onclick="navTo('home')" class="back-btn">← 홈으로</button>
-                <h2>🏗️ 맵 빌더</h2>
+                <h2 id="editor-title">🏗️ 맵 빌더</h2>
             </div>
+
+            <div id="battle-timer-container" style="text-align: center; margin-bottom: 10px; display: none;">
+                <span id="battle-timer" style="font-size: 24px; color: #e74c3c; font-weight: bold; background: #fff; padding: 5px 15px; border-radius: 20px; border: 2px solid #e74c3c;">
+                    남은 시간: 20초
+                </span>
+            </div>
+
             <div class="palette">
                 <button class="tool-btn active" onclick="selectType('MY_TILE', event)">내 발판</button>
                 <button class="tool-btn" onclick="selectType('ENEMY_TILE', event)">적 발판</button>
                 <button class="tool-btn" onclick="selectType('WALL', event)">벽 설치</button>
                 <button class="tool-btn" onclick="selectType('EMPTY', event)">지우개</button>
             </div>
+
             <div id="map-grid" class="grid-container"></div>
+
             <div class="actions">
                 <button onclick="saveMap()" class="save-btn">맵 저장하기</button>
             </div>
@@ -81,20 +84,18 @@
                 <button onclick="navTo('home')" class="back-btn">← 홈으로</button>
                 <h2>🎲 주사위 덱 설정</h2>
             </div>
-            
             <div class="deck-container">
                 <h3>내 현재 덱 (클릭 시 제거)</h3>
                 <div id="current-deck" class="dice-grid"></div>
                 <button onclick="saveUserDeck()" class="save-btn">덱 확정 저장</button>
             </div>
-        
             <hr>
-        
             <div class="dice-market">
                 <h3>전체 주사위 목록 (클릭 시 추가)</h3>
                 <div id="dice-list" class="dice-grid"></div>
             </div>
         </div>
+
         <div id="battle-header" style="display:none;" class="battle-ui">
             <div class="hp-display">나: <span id="my-hp">❤️❤️❤️❤️❤️</span></div>
             <div class="vs">VS</div>
@@ -102,14 +103,21 @@
         </div>
         
         <div id="battle-hand-section" style="display:none;" class="battle-ui">
-            <h3>이번 턴 배치할 주사위 선택</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 style="margin: 0;">이번 턴 배치할 주사위 선택</h3>
+                <button id="complete-btn" onclick="sendCompleteSignal()" style="background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    배치 완료 (확정)
+                </button>
+            </div>
             <div id="battle-hand" class="dice-grid"></div>
         </div>
-        <div id="matching-overlay" style="display:none; ...">
-            <div class="spinner"></div>
-            <h2>⚔️ 상대를 찾는 중...</h2>
-            <br>
-            <button onclick="cancelMatch()" style="margin-top: 20px; padding: 10px 20px; cursor: pointer;">매칭 취소</button>
+
+        <div id="matching-overlay" class="overlay" style="display:none;">
+            <div class="overlay-content">
+                <div class="spinner"></div>
+                <h2>⚔️ 상대를 찾는 중...</h2>
+                <button onclick="cancelMatch()" class="cancel-btn">매칭 취소</button>
+            </div>
         </div>
     </div>
 </body>
