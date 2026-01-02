@@ -948,8 +948,6 @@ function startNextRound(nextHand, nextTurnVal) {
         const fill = tile.querySelector('.hp-bar-fill');
         if(fill) fill.style.width = '100%';
     });
-    
-    alert(`⚔️ ${currentTurn}턴 시작! 60초 안에 배치하세요.`);
 }
 
 window.addEventListener('DOMContentLoaded', () => {
