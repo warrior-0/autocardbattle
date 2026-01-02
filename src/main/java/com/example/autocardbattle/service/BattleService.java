@@ -50,7 +50,7 @@ public class BattleService {
         int x, y;   // 위치
         String type; // 주사위 타입 (FIRE, SNIPER 등)
         int hp, maxHp; // 현재 및 최대 체력
-        long nextAttackTime; // 다음 공격 가능 시간 (ms)
+        double nextAttackTime; // 다음 공격 가능 시간 (ms)
         DiceEntity stats; // DB에서 가져온 주사위 스탯
         
         // 생성자: 배치 정보(p)와 DB 스탯(diceStats)을 받아 초기화합니다
@@ -62,7 +62,8 @@ public class BattleService {
             this.stats = diceStats;
             this.hp = diceStats.getHp();
             this.maxHp = diceStats.getHp();
-            this.nextAttackTime = 500; 
+            double attackCycle = 1000.0 / this.stats.getAps();
+            this.nextAttackTime = attackCycle; 
         }
     }
 
