@@ -219,8 +219,8 @@ function saveMap() {
     });
 }
 
-// loadMapToGrid 함수: 배틀 중에는 글자를 표시하지 않음
-function loadMapToGrid(fullMapString, isBattle = true) { // isBattle 파라미터 추가
+// 전투시 맵 그려주는 함
+function loadMapToGrid(fullMapString, isBattle = true) {
     if (!fullMapString) return;
     
     const tiles = fullMapString.split(",");
@@ -228,16 +228,29 @@ function loadMapToGrid(fullMapString, isBattle = true) { // isBattle 파라미�
     gridElement.innerHTML = ''; 
     mapData = []; 
 
+    // ✅ 핵심: 내가 '두 번째 유저'라면 맵의 진영을 반전시킵니다.
+    // (이 로직을 위해 서버에서 내가 몇 번째 유저인지 정보를 주거나, 
+    // 방 생성 시 배정된 역할을 확인해야 합니다. 여기서는 간단히 로직만 설명합니다.)
+    
     tiles.forEach((type, i) => {
         const x = i % GRID_SIZE;
         const y = Math.floor(i / GRID_SIZE);
-        mapData.push({ x, y, tileType: type });
+        
+        let adjustedType = type;
+        
+        // 만약 내가 '적군' 입장으로 매칭되었다면 타입을 뒤바꿉니다.
+        // (isSecondPlayer 변수는 매칭 성공 시 서버에서 받아온 정보를 바탕으로 설정)
+        if (isBattle && isSecondPlayer) {
+            if (type === 'MY_TILE') adjustedType = 'ENEMY_TILE';
+            else if (type === 'ENEMY_TILE') adjustedType = 'MY_TILE';
+        }
+
+        mapData.push({ x, y, tileType: adjustedType, hasDice: false });
 
         const tile = document.createElement('div');
         tile.id = `tile-${x}-${y}`;
-        tile.className = `tile ${type}`; 
+        tile.className = `tile ${adjustedType}`; // 내 화면엔 항상 내 진영이 파란색으로 보임
         
-        // ✅ 수정: 배틀 상태(isBattle)라면 텍스트를 비워서 주사위 배치를 명확히 함
         if (!isBattle) {
             if (type === 'MY_TILE') tile.innerText = "내 타일";
             else if (type === 'ENEMY_TILE') tile.innerText = "적 타일";
