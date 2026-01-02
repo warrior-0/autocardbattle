@@ -41,8 +41,17 @@ public class BattleService {
 
             if (!alreadyExists) {
                 userPlacements.add(msg);
+
+                // ✅ [핵심] 배치할 때마다 유저에게 새로운 주사위 2개를 실시간으로 리필 전송
+                List<String> nextHand = generateRandomHand(msg.getSender());
+                
+                BattleMessage refillMsg = new BattleMessage();
+                refillMsg.setType("DICE_REFILL");
+                refillMsg.setNextHand(nextHand);
+                
+                // 해당 유저의 개인 채널로만 전송
+                messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), refillMsg);
             }
-            // PLACE 메시지는 상대에게 전달하지 않기 위해 null 반환 (컨트롤러에서 처리)
             return null;
         }
 
@@ -57,61 +66,82 @@ public class BattleService {
                     state.turn++;
                     state.readyUsers.clear();
 
-                    // ✅ 핵심: 각 유저별로 본인의 덱에서 랜덤 주사위 2개를 뽑아 개별 채널로 전송
+                    // 각 유저별로 다음 턴의 첫 손패 2개를 개별 채널로 전송
                     for (String userUid : state.placements.keySet()) {
                         List<String> nextHand = generateRandomHand(userUid);
                         
                         BattleMessage personalMsg = new BattleMessage();
                         personalMsg.setType("TURN_PROGRESS");
                         personalMsg.setTurn(state.turn);
-                        personalMsg.setNextHand(nextHand); // BattleMessage DTO에 nextHand 필드 필요
+                        personalMsg.setNextHand(nextHand);
                         
-                        // /topic/battle/{roomId}/{userUid} 경로로 개별 전송
                         messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + userUid, personalMsg);
                     }
-                    
-                    // 공통 브로드캐스팅 채널로는 턴 숫자만 전달하거나 null을 반환하여 중복 전송 방지
                     return null; 
                 } else {
                     // 3턴 종료: 전체 공개 및 결과 판정
                     return judgeWinner(state, msg, roomId);
                 }
             } else {
-                // 한 명만 완료했을 경우 대기 메시지 전송
                 BattleMessage waitMsg = new BattleMessage();
                 waitMsg.setType("WAIT_OPPONENT");
                 return waitMsg;
             }
         }
-
         return null;
     }
 
-    // 유저의 덱에서 랜덤하게 주사위 2개를 뽑는 헬퍼 메서드
-    private List<String> generateRandomHand(String userUid) {
-        return userRepository.findById(userUid).map(user -> {
-            String deckStr = user.getSelectedDeck(); // UserEntity의 덱 정보
-            if (deckStr == null || deckStr.isEmpty()) {
-                return Arrays.asList("FIRE", "WIND"); // 덱이 없을 경우 기본값
-            }
+    /**
+     * ✅ [추가] 입장 싱크 맞추기: 두 유저가 모두 READY일 때 게임을 동시에 시작시킵니다.
+     */
+    public void initiateGameStart(String roomId) {
+        Set<String> readyUsers = BattleController.roomReadyStatus.get(roomId);
+        if (readyUsers == null || readyUsers.size() < 2) return;
+        
+        List<String> users = new ArrayList<>(readyUsers);
+
+        for (int i = 0; i < users.size(); i++) {
+            String uid = users.get(i);
+            // 시작 시 첫 주사위 2개를 뽑음
+            List<String> firstHand = generateRandomHand(uid);
             
-            List<String> fullDeck = new ArrayList<>(Arrays.asList(deckStr.split(",")));
-            Collections.shuffle(fullDeck);
-            // 덱에서 최대 2개 추출
-            return fullDeck.subList(0, Math.min(2, fullDeck.size()));
-        }).orElse(Arrays.asList("FIRE", "WIND"));
+            BattleMessage startMsg = new BattleMessage();
+            startMsg.setType("GAME_START");
+            startMsg.setTurn(1);
+            startMsg.setNextHand(firstHand);
+            // 유저에게 진영 정보(0: 왼쪽, 1: 오른쪽)를 할당하여 전송
+            startMsg.setSender(String.valueOf(i)); 
+
+            messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + uid, startMsg);
+        }
+    }
+
+    // 유저의 덱에서 랜덤하게 주사위 2개를 뽑는 헬퍼 메서드 (재사용)
+    private List<String> generateRandomHand(String userUid) {
+            return userRepository.findById(userUid).map(user -> {
+                String deckStr = user.getSelectedDeck();
+                
+                // 만약의 상황을 대비한 방어 코드 (빈 리스트 반환)
+                if (deckStr == null || deckStr.isEmpty()) {
+                    return new ArrayList<String>();
+                }
+                
+                List<String> fullDeck = new ArrayList<>(Arrays.asList(deckStr.split(",")));
+                Collections.shuffle(fullDeck);
+                
+                // 덱에서 최대 2개 추출
+                return fullDeck.subList(0, Math.min(2, fullDeck.size()));
+            }).orElseGet(ArrayList::new); // 유저가 없을 경우 빈 리스트 반환
     }
 
     private BattleMessage judgeWinner(GameState state, BattleMessage msg, String roomId) {
         BattleMessage response = new BattleMessage();
         response.setType("REVEAL");
         
-        // 모든 유저의 누적 배치 정보를 하나로 모음 (이때 비로소 상대에게 공개됨)
         List<BattleMessage> allPlacements = new ArrayList<>();
         state.placements.values().forEach(allPlacements::addAll);
         response.setAllPlacements(allPlacements);
 
-        // 승패 판정 로직 (주사위 개수 비교)
         List<String> userIds = new ArrayList<>(state.placements.keySet());
         if (userIds.size() < 2) {
             response.setLoserUid("NONE");
@@ -127,7 +157,6 @@ public class BattleService {
             else response.setLoserUid("NONE");
         }
 
-        // 다음 라운드를 위해 준비 상태만 초기화 (placements는 유지하여 주사위가 남게 함)
         state.readyUsers.clear();
         state.turn = 1; 
         
