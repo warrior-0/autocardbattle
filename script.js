@@ -685,10 +685,11 @@ function handleBattleMessage(data) {
             currentTurn = data.turn || 1;
 
             // 2. [추가] 진영 설정에 맞춰 맵을 다시 그림 (파랑/빨강 반전 로직 적용)
-            // window.currentMapString은 startMatch 단계에서 저장해둔 맵 데이터입니다.
             if (window.currentMapString) {
                 loadMapToGrid(window.currentMapString, true); 
             }
+            // 3. 맵을 이제 보이게 설정 (동시 시작 효과)
+            document.getElementById('map-grid').style.visibility = 'visible';
                     
             myHand = data.nextHand;
             placementCount = 0;
