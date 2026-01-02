@@ -89,7 +89,7 @@ public class BattleController {
     @PostMapping("/start")
     public BattleResponse startBattle(@RequestParam String userUid, @RequestBody List<String> userDeck) {
         // 핸드는 빈 리스트로 보냄 (GAME_START 메시지로 따로 받을 것임)
-        return new BattleResponse(randomMap, new ArrayList<>(), 1);
+        return new BattleResponse(new ArrayList<>(), new ArrayList<>(), 1);
     }
 
     // 방별 저장된 맵 정보를 가져오는 헬퍼 메서드 (Service에서 사용)
