@@ -627,7 +627,7 @@ function onTileClickForBattle(x, y) {
     document.querySelectorAll('#battle-hand .dice-card').forEach(c => c.classList.remove('selected'));
 }
 
-// 서버에서 오는 실시간 메시지 처리기 (수정본)
+// 서버에서 오는 실시간 메시지 처리기
 function handleBattleMessage(data) {
     console.log("메시지 수신:", data.type, data); // 디버깅용
 
@@ -643,7 +643,7 @@ function handleBattleMessage(data) {
             currentTurn = data.turn;
             myHand = data.nextHand || [];
             
-            // 2. UI 갱신
+            // 2. UI 갱신 (배치 영역 다시 보이기)
             document.getElementById('battle-hand-section').style.display = 'block';
             renderHand();
             
@@ -656,23 +656,23 @@ function handleBattleMessage(data) {
             // 1. 타이머 중지
             if (battleTimer) clearInterval(battleTimer);
             
-            // 2. 전체 전장 공개 (상대방 주사위 포함)
+            // 2. 전체 전장 공개 (상대방 주사위 포함하여 한꺼번에 그리기)
             renderFullMap(data.allPlacements); 
             
             // 3. 승패 판정 및 데미지 적용
             applyDamage(data.loserUid);
             
-            // 4. 전투 연출 후 다음 라운드(다시 1턴부터) 준비
-            setTimeout(() => {
-                alert("라운드 종료! 살아남은 주사위들은 유지됩니다. 다음 라운드를 준비하세요.");
-                // 필요 시 currentTurn을 1로 초기화하고 다시 시작하는 로직 추가
-            }, 3000);
+            // 4. 다음 라운드 준비 (턴 초기화 및 상태 정리)
+            currentTurn = 1;
+            selectedDiceFromHand = null;
+            renderHand(); 
+            
+            alert("전투 종료! 살아남은 주사위들이 다음 라운드에도 유지됩니다.");
             break;
             
         case "WAIT_OPPONENT":
-            // 한 명이 '확정'을 눌렀을 때의 UI 피드백
             console.log("상대방의 배치를 기다리고 있습니다...");
-            // 예: "상대방 대기 중..." 메시지 표시
+            // UI에 "상대방 대기 중..." 표시를 추가하면 더 좋습니다.
             break;
             
         case "OPPONENT_READY":
@@ -681,46 +681,35 @@ function handleBattleMessage(data) {
     }
 }
 
+// [추가] 3턴 종료 후 모든 주사위를 화면에 그리는 함수
+function renderFullMap(placements) {
+    if (!placements) return;
+
+    placements.forEach(p => {
+        const tile = document.getElementById(`tile-${p.x}-${p.y}`);
+        const mapInfo = mapData.find(m => m.x === p.x && m.y === p.y);
+        
+        if (tile && mapInfo) {
+            // 주사위 이모지 설정
+            tile.innerText = getDiceEmoji(p.diceType); 
+            
+            // 진영별 스타일 적용
+            if (mapInfo.tileType === 'MY_TILE') {
+                tile.style.backgroundColor = "#3498db"; // 내 진영 푸른색
+                tile.style.color = "white";
+            } else if (mapInfo.tileType === 'ENEMY_TILE') {
+                tile.style.backgroundColor = "#e74c3c"; // 적 진영 붉은색
+                tile.style.color = "white";
+            }
+            
+            // 배치된 상태로 확정 (클릭 방지 클래스 추가)
+            tile.classList.add('placed-dice');
+        }
+    });
+}
+
 let myHp = 5;
 let enemyHp = 5;
-
-function handleBattleMessage(data) {
-    if (data.type === "REVEAL") {
-        // 1. 서버가 보내준 전체 배치 데이터(누적분)를 순회
-        data.allPlacements.forEach(p => {
-            const tile = document.getElementById(`tile-${p.x}-${p.y}`);
-            
-            // [수정] 맵 데이터에서 해당 좌표의 타일 타입을 찾습니다.
-            const mapInfo = mapData.find(m => m.x === p.x && m.y === p.y);
-            
-            if (tile && mapInfo) {
-                // 주사위 텍스트 설정 (타입명이 있다면 표시)
-                tile.innerText = getDiceEmoji(p.diceType); 
-                
-                // 타일 타입에 따른 색상 적용 (기본 맵 스타일 유지)
-                if (mapInfo.tileType === 'MY_TILE') {
-                    tile.style.backgroundColor = "#3498db"; // 내 진영 푸른색
-                    tile.style.color = "white";
-                } else if (mapInfo.tileType === 'ENEMY_TILE') {
-                    tile.style.backgroundColor = "#e74c3c"; // 적 진영 붉은색
-                    tile.style.color = "white";
-                }
-                
-                // 배치된 주사위라는 것을 알리기 위해 클래스 추가 (애니메이션 등 활용)
-                tile.classList.add('placed-dice');
-            }
-        });
-
-        applyDamage(data.loserUid);
-        currentTurn = 1;
-        
-        // 2. 다음 배치를 위해 선택 상태 초기화
-        selectedDiceFromHand = null;
-        renderHand(); 
-        
-        alert("전투 종료! 살아남은 주사위들이 다음 라운드에도 유지됩니다.");
-    }
-}
 
 // 주사위 타입에 따른 이모지 반환 (선택 사항)
 function getDiceEmoji(type) {
