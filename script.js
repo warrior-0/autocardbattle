@@ -215,35 +215,32 @@ function saveMap() {
     });
 }
 
-// script.js 내 loadMapToGrid 함수 수정
-function loadMapToGrid(fullMapString) {
+// loadMapToGrid 함수: 배틀 중에는 글자를 표시하지 않음
+function loadMapToGrid(fullMapString, isBattle = true) { // isBattle 파라미터 추가
     if (!fullMapString) return;
     
     const tiles = fullMapString.split(",");
     const gridElement = document.getElementById('map-grid');
-    gridElement.innerHTML = ''; // 기존 그리드 삭제
-    mapData = []; // 데이터 초기화
+    gridElement.innerHTML = ''; 
+    mapData = []; 
 
     tiles.forEach((type, i) => {
         const x = i % GRID_SIZE;
         const y = Math.floor(i / GRID_SIZE);
-        
-        // 1. 데이터 배열 업데이트
         mapData.push({ x, y, tileType: type });
 
-        // 2. UI 생성
         const tile = document.createElement('div');
         tile.id = `tile-${x}-${y}`;
-        tile.className = `tile ${type}`; // DB에서 가져온 타입(MY_TILE 등) 적용
+        tile.className = `tile ${type}`; 
         
-        // 텍스트 표시
-        if (type === 'MY_TILE') tile.innerText = "내 타일";
-        else if (type === 'ENEMY_TILE') tile.innerText = "적 타일";
-        else if (type === 'WALL') tile.innerText = "벽";
+        // ✅ 수정: 배틀 상태(isBattle)라면 텍스트를 비워서 주사위 배치를 명확히 함
+        if (!isBattle) {
+            if (type === 'MY_TILE') tile.innerText = "내 타일";
+            else if (type === 'ENEMY_TILE') tile.innerText = "적 타일";
+            else if (type === 'WALL') tile.innerText = "벽";
+        }
 
-        // 3. 전투 중이라면 배치 클릭 이벤트 연결
         tile.onclick = () => onTileClickForBattle(x, y);
-        
         gridElement.appendChild(tile);
     });
 }
