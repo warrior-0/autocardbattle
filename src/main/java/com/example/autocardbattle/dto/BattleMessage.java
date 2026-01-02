@@ -1,3 +1,5 @@
+// src/main/java/com/example/autocardbattle/dto/BattleMessage.java
+
 package com.example.autocardbattle.dto;
 
 import lombok.Data;
@@ -18,14 +20,12 @@ public class BattleMessage {
     private List<BattleMessage> allPlacements;
     private List<String> nextHand;
 
-    // 전투 데미지 필드
-    private int damageToP1;
-    private int damageToP2;
+    // ✅ [수정] 정확한 체력 동기화를 위한 필드
+    private int remainingMyHp;    // 나의 남은 체력
+    private int remainingEnemyHp; // 적의 남은 체력
 
-    // 전투 로그 리스트
     private List<CombatLogEntry> combatLogs;
 
-    // 전투 로그 엔트리 클래스 정의
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
