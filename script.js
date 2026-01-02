@@ -495,6 +495,7 @@ async function startMatch() {
             myHand = startData.hand;
             currentTurn = 1;
             renderHand();
+            startBattleTimer();
 
         } else if (res.status === 202) {
             matchTimer = setTimeout(startMatch, 5000); 
