@@ -627,36 +627,56 @@ function onTileClickForBattle(x, y) {
     document.querySelectorAll('#battle-hand .dice-card').forEach(c => c.classList.remove('selected'));
 }
 
-// 서버에서 오는 실시간 메시지 처리기 (handleBattleMessage 보완)
+// 서버에서 오는 실시간 메시지 처리기 (수정본)
 function handleBattleMessage(data) {
+    console.log("메시지 수신:", data.type, data); // 디버깅용
+
     switch(data.type) {
-        case "OPPONENT_LEFT": // ✅ 상대방 이탈 케이스 추가
+        case "OPPONENT_LEFT":
+            if (battleTimer) clearInterval(battleTimer);
             alert("상대방이 전장을 이탈했습니다. 당신의 승리입니다!");
-            navTo('home'); // 홈으로 이동
+            navTo('home');
             break;
         
-        case "MATCH_FOUND": // 매칭 성공 및 맵 정보 수신
-            loadMapToGrid(data.mapData);
-            myHand = data.hand;
-            currentTurn = 1;
+        case "TURN_PROGRESS":
+            // 1. 서버가 준 다음 턴 번호와 손패 적용
+            currentTurn = data.turn;
+            myHand = data.nextHand || [];
+            
+            // 2. UI 갱신
+            document.getElementById('battle-hand-section').style.display = 'block';
             renderHand();
-            alert("상대를 찾았습니다! 배치를 시작하세요.");
+            
+            // 3. 20초 타이머 재시작
+            startBattleTimer(); 
+            alert(`${currentTurn}턴이 시작되었습니다! 20초 안에 배치하세요.`);
             break;
 
-        case "TURN_PROGRESS": // 양쪽 모두 배치 완료되어 다음 턴 진행
-            myHand = data.nextHand;
-            currentTurn = data.nextTurn;
-            renderHand();
-            alert(`${data.nextTurn}턴이 시작되었습니다.`);
-            break;
-
-        case "REVEAL": // 3턴 종료, 전체 전장 공개
-            renderFullMap(data.allPlacements); // 상대 주사위까지 다 그리기
-            startFight(); // 전투 애니메이션 시작
+        case "REVEAL":
+            // 1. 타이머 중지
+            if (battleTimer) clearInterval(battleTimer);
+            
+            // 2. 전체 전장 공개 (상대방 주사위 포함)
+            renderFullMap(data.allPlacements); 
+            
+            // 3. 승패 판정 및 데미지 적용
+            applyDamage(data.loserUid);
+            
+            // 4. 전투 연출 후 다음 라운드(다시 1턴부터) 준비
+            setTimeout(() => {
+                alert("라운드 종료! 살아남은 주사위들은 유지됩니다. 다음 라운드를 준비하세요.");
+                // 필요 시 currentTurn을 1로 초기화하고 다시 시작하는 로직 추가
+            }, 3000);
             break;
             
-        case "OPPONENT_READY": // 상대방이 배치를 마쳤다는 알림 (심리적 요소)
-            console.log("상대방이 배치를 완료하고 기다리고 있습니다.");
+        case "WAIT_OPPONENT":
+            // 한 명이 '확정'을 눌렀을 때의 UI 피드백
+            console.log("상대방의 배치를 기다리고 있습니다...");
+            // 예: "상대방 대기 중..." 메시지 표시
+            break;
+            
+        case "OPPONENT_READY":
+            console.log("상대방이 이번 턴 배치를 마쳤습니다.");
             break;
     }
 }
