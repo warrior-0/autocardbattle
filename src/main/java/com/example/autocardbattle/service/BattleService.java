@@ -58,10 +58,9 @@ public class BattleService {
             this.hp = diceStats.getHp();
             this.maxHp = diceStats.getHp();
             
-            // ✅ [핵심 1] 랜덤 제거 & 공속 기반 고정 타이밍
-            // 같은 유닛끼리는 100% 동일한 타이밍에 첫 공격을 합니다.
             double attackCycle = 1000.0 / this.stats.getAps();
-            this.nextAttackTime = attackCycle; 
+            this.nextAttackTime = attackCycle;
+            this.currentTarget = null;
         }
     }
 
