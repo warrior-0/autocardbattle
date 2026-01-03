@@ -5,19 +5,17 @@ WORKDIR /app
 # pom.xml만 먼저 복사 (캐시 활용)
 COPY pom.xml .
 
-# [수정] 의존성 다운로드 강화
-# go-offline만으로는 부족할 때가 있어, verify 등을 추가하거나 그대로 둡니다.
-# 가장 확실한 건 아래 빌드 단계에서 오프라인 모드를 켜는 것입니다.
+# 의존성 미리 다운로드
 RUN mvn dependency:go-offline -B
 
 # 소스 코드 복사
 COPY src ./src
 
-# [수정] 빌드 실행 시 '-o' (offline) 옵션 추가
-# -o: 네트워크 접속 없이, 아까 다운로드해둔 로컬 저장소(.m2)만 사용해서 빌드하라
-RUN mvn clean package -DskipTests -o
+# [수정] -o 옵션을 제거합니다. 
+# 라이브러리가 부족할 경우 인터넷에서 자동으로 받아오게 하여 빌드 성공률을 높입니다.
+RUN mvn clean package -DskipTests
 
-# 2. 실행 단계 (이전과 동일)
+# 2. 실행 단계
 FROM eclipse-temurin:17-jdk
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
