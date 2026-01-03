@@ -562,37 +562,60 @@ let selectedDiceFromHand = null; // 내가 배치하려고 선택한 주사위
 
 // 서버에서 받은 손패(주사위 2개)를 화면에 그리는 함수
 function renderHand() {
-    const handDiv = document.getElementById('battle-hand'); // index.html의 손패 영역
-    if (!handDiv) return;
+    const handDiv = document.getElementById('battle-hand');
+    if (!handDiv) {
+        console.error("❌ [RenderHand] 'battle-hand' 요소를 찾을 수 없습니다.");
+        return;
+    }
 
-    handDiv.innerHTML = ""; // 기존 손패 초기화
+    // [디버깅] 데이터 확인
+    console.log(`🎲 [RenderHand] 렌더링 시작. 내 핸드:`, myHand);
+    console.log(`📚 [RenderHand] 전체 주사위 정보(allDice):`, allDice);
+
+    handDiv.innerHTML = ""; // 초기화
+
+    // 1. 핸드가 비어있는 경우 (서버 문제)
+    if (!myHand || myHand.length === 0) {
+        handDiv.innerHTML = "<p style='color: #7f8c8d;'>배치할 주사위가 없습니다.</p>";
+        console.warn("⚠️ [RenderHand] myHand가 비어있습니다. 덱이 저장되지 않았거나 서버 오류일 수 있습니다.");
+        return;
+    }
+
+    // 2. 전체 주사위 데이터가 로드되지 않은 경우 (로딩 문제)
+    if (!allDice || allDice.length === 0) {
+        handDiv.innerHTML = "<p>데이터 로딩 중...</p>";
+        console.warn("⚠️ [RenderHand] allDice 데이터가 아직 로드되지 않았습니다.");
+        return;
+    }
 
     myHand.forEach(diceType => {
-        // 전체 주사위 데이터(allDice)에서 해당 타입의 정보를 찾음
         const diceInfo = allDice.find(d => d.diceType === diceType);
         
         if (diceInfo) {
             const card = document.createElement('div');
-            card.className = 'dice-card';
+            // ✅ 기존 카드 스타일 유지
+            card.className = 'dice-card'; 
             card.style.borderColor = diceInfo.color;
+            
+            // 직관적인 디자인 적용 (이전 단계에서 만든 디자인 요소 활용 가능)
             card.innerHTML = `
                 <div class="dice-icon" style="color:${diceInfo.color}">${getDiceEmoji(diceType)}</div>
                 <h4>${diceInfo.name}</h4>
                 <div class="dice-stats">사거리:${diceInfo.range}</div>
             `;
 
-            // 주사위 클릭 시 선택 효과
             card.onclick = () => {
                 document.querySelectorAll('#battle-hand .dice-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
-                selectedDiceFromHand = diceType; // 배치할 주사위로 설정
+                selectedDiceFromHand = diceType;
             };
 
             handDiv.appendChild(card);
+        } else {
+            console.error(`❌ [RenderHand] 알 수 없는 주사위 타입: ${diceType}`);
         }
     });
 }
-
 
 // 유닛 배치 함수
 function onTileClickForBattle(x, y) {
