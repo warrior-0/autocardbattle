@@ -615,13 +615,19 @@ function onTileClickForBattle(x, y) {
         turn: currentTurn
     };
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
+
+    // UI 반영: 텍스트 대신 디자인된 유닛 추가
+    tileEl.innerText = ""; // 초기화
+
+    const unitDiv = document.createElement('div');
+    unitDiv.className = `dice-unit ${selectedDiceFromHand} new-spawn`;
+    unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(selectedDiceFromHand)}</span>`;
     
-    // UI 반영
-    tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
+    tileEl.appendChild(unitDiv);
+
     tileEl.classList.add('placed-dice');
     tileEl.setAttribute('data-dice', selectedDiceFromHand);
     tileInfo.hasDice = true;
-    
     myHand = myHand.filter(d => d !== selectedDiceFromHand); 
     selectedDiceFromHand = null;
     placementCount++;
@@ -881,23 +887,36 @@ function updateTimerUI() {
 // renderFullMap 보완: 체력바 추가
 function renderFullMap(placements, isBattleMode) {
     if (!placements) return;
+
+    // 1. 기존 유닛 초기화 (중복 방지)
+    document.querySelectorAll('.dice-unit').forEach(el => el.remove());
+    document.querySelectorAll('.hp-bar-container').forEach(el => el.remove());
+
     placements.forEach(p => {
         const tile = document.getElementById(`tile-${p.x}-${p.y}`);
         if (tile) {
-            tile.innerText = getDiceEmoji(p.diceType);
-            tile.classList.add('placed-dice');
+            // ✅ [변경] 텍스트 대신 '유닛 컨테이너' 생성
+            tile.innerText = ""; // 기존 텍스트 제거
             
-            // 진영 색상
+            const unitDiv = document.createElement('div');
+            unitDiv.className = `dice-unit ${p.diceType} new-spawn`; // 타입별 클래스 추가
+            unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(p.diceType)}</span>`;
+            
+            tile.appendChild(unitDiv);
+            tile.classList.add('placed-dice');
+
+            // 진영 색상 (바닥 타일 색상 유지)
             const tileInfo = mapData.find(m => m.x === p.x && m.y === p.y);
             if (tileInfo) {
-                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "#3498db";
-                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "#e74c3c";
+                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "rgba(52, 152, 219, 0.3)"; 
+                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "rgba(231, 76, 60, 0.3)";
             }
 
             if (isBattleMode) {
-                // 체력바 주입
+                // 체력바 추가 (타일이 아닌 unitDiv 아래에 두거나 타일에 absolute로 둠)
+                // 여기선 타일(부모)에 둡니다.
                 if (!tile.querySelector('.hp-bar-container')) {
-                    tile.setAttribute('data-hp', 100); // DB 연동 시 p.hp 사용
+                    tile.setAttribute('data-hp', 100); 
                     tile.setAttribute('data-max-hp', 100);
                     const bar = document.createElement('div');
                     bar.className = 'hp-bar-container';
@@ -911,18 +930,6 @@ function renderFullMap(placements, isBattleMode) {
 
 let myHp = 5;
 let enemyHp = 5;
-
-// 주사위 타입에 따른 이모지 반환 (선택 사항)
-function getDiceEmoji(type) {
-    const emojis = {
-        'FIRE': '🔥',
-        'WIND': '🌪️',
-        'ELECTRIC': '⚡',
-        'SWORD': '⚔️',
-        'SNIPER': '🎯'
-    };
-    return emojis[type] || "🎲";
-}
 
 function applyDamage(loserUid) {
     // 1. 무승부 판정
