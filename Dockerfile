@@ -2,17 +2,20 @@
 FROM maven:3.9.6-eclipse-temurin-17 AS build
 WORKDIR /app
 
-# [변경 포인트 1] pom.xml만 먼저 복사합니다.
+# pom.xml만 먼저 복사 (캐시 활용)
 COPY pom.xml .
 
-# [변경 포인트 2] 의존성 라이브러리만 미리 다운로드합니다.
-# 이 단계가 실행되면 라이브러리들이 Docker 레이어에 저장(캐싱)됩니다.
-# pom.xml이 수정되지 않는 한, 다음 배포부터 이 과정은 순식간에 지나갑니다.
+# [수정] 의존성 다운로드 강화
+# go-offline만으로는 부족할 때가 있어, verify 등을 추가하거나 그대로 둡니다.
+# 가장 확실한 건 아래 빌드 단계에서 오프라인 모드를 켜는 것입니다.
 RUN mvn dependency:go-offline -B
 
-# [변경 포인트 3] 그 다음 소스 코드를 복사하고 빌드합니다.
+# 소스 코드 복사
 COPY src ./src
-RUN mvn clean package -DskipTests
+
+# [수정] 빌드 실행 시 '-o' (offline) 옵션 추가
+# -o: 네트워크 접속 없이, 아까 다운로드해둔 로컬 저장소(.m2)만 사용해서 빌드하라
+RUN mvn clean package -DskipTests -o
 
 # 2. 실행 단계 (이전과 동일)
 FROM eclipse-temurin:17-jdk
