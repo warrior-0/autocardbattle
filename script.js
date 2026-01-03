@@ -677,47 +677,53 @@ function handleBattleMessage(data) {
             if (battleTimer) clearInterval(battleTimer); // 타이머 정지
             navTo('home'); // 홈으로 이동
             break;
-
+            
         case "REVEAL":
             if (battleTimer) clearInterval(battleTimer);
             
-            // 1. 맵 전체 공개 및 체력바 세팅 (전투 모드)
+            // 1. 맵 전체 공개
             renderFullMap(data.allPlacements, true); 
-
-            // 2. 전투 종료 예상 시간 계산
+        
+            // 2. [핵심] 실제 종료 시간 계산
+            // 마지막 공격 로그 시간 + 2000ms (2초 여유)
             let lastLogTime = 0;
             if (data.combatLogs && data.combatLogs.length > 0) {
-                // 마지막 로그가 찍힌 시간(ms)을 가져옴
                 lastLogTime = data.combatLogs[data.combatLogs.length - 1].timeDelay;
             }
-            
-            // 유저가 결과를 인식할 수 있게 마지막 공격 후 2초 정도만 더 보여줌 (최소 3초 보장)
-            let displayDuration = Math.max(5000, lastLogTime + 2000); 
+            // 아무 공격이 없었다면(0ms) 2초 뒤에, 공격이 있었다면 마지막 공격 2초 뒤에 종료
+            let actualEndTime = lastLogTime + 2000; 
         
-            // 3. UI: 전투 중 표시 및 카운트다운 (동적으로 계산된 시간 적용)
+            // 3. [핵심] UI 타이머 시간: 30초 고정 (스포일러 방지)
+            // 실제 전투가 5초 만에 끝나더라도 UI는 30초부터 카운트다운해 결과를 미리 짐작 못하게 합니다.
+            let uiDisplayTime = 30000; 
+        
+            // 4. UI 표시
             document.getElementById('battle-hand-section').style.display = 'block';
-            let secondsLeft = Math.ceil(displayDuration / 1000);
+            let secondsLeft = Math.ceil(uiDisplayTime / 1000); // 30
+            
             document.getElementById('battle-hand').innerHTML = `
                 <div style="text-align: center; color: #e74c3c;">
                     <h3>🔥 전투 진행 중... <span id="combat-countdown">${secondsLeft}</span></h3>
                 </div>`;
         
-            // 4. 전투 로그 재생
+            // 5. 전투 로그 재생
             playCombatLogs(data.combatLogs);
         
-            // 5. 시각적 카운트다운 업데이트
+            // 6. 시각적 카운트다운 (30초 -> 0초)
             const countdownInterval = setInterval(() => {
                 secondsLeft--;
                 const el = document.getElementById('combat-countdown');
                 if (el) el.innerText = Math.max(0, secondsLeft);
+                
+                // (UI용 타이머라 0이 되어도 별도 동작 안 함, setTimeout이 제어)
                 if (secondsLeft <= 0) clearInterval(countdownInterval);
             }, 1000);
         
-            // 6. [핵심] 계산된 시간이 지나면 즉시 다음 라운드 실행
+            // 7. [핵심] 실제 종료 시간에 맞춰 다음 라운드로 강제 이동
             setTimeout(() => {
-                clearInterval(countdownInterval);
+                clearInterval(countdownInterval); // UI 타이머 멈춤
                 
-                // 체력 정보 업데이트
+                // 체력 업데이트
                 myHp = data.remainingMyHp;
                 enemyHp = data.remainingEnemyHp;
                 updateHpUI('my-hp', myHp);
@@ -727,10 +733,10 @@ function handleBattleMessage(data) {
                     alert(data.loserUid === currentUser.firebaseUid ? "패배했습니다..." : "승리했습니다!");
                     navTo('home');
                 } else {
-                    // ✅ 30초가 아니라, 애니메이션 종료 후 즉시 다음 라운드로!
+                    // 전투 종료 2초 후 즉시 다음 라운드 시작
                     startNextRound(data.nextHand, data.turn); 
                 }
-            }, displayDuration); 
+            }, actualEndTime); 
             break;
         
         case "WAIT_OPPONENT":
