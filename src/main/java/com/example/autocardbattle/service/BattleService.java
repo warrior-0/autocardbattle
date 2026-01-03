@@ -259,45 +259,54 @@ public class BattleService {
             long livingTeams = units.stream().filter(u -> u.hp > 0).map(u -> u.uid).distinct().count();
             if (livingTeams <= 1) break;
 
-            // ✅ [핵심 3] 이번 틱(0.1초) 동안 발생한 모든 데미지를 저장할 장바구니
             Map<SimUnit, Integer> tickDamageAccumulator = new HashMap<>();
 
             for (SimUnit attacker : units) {
                 if (attacker.hp <= 0) continue;
 
                 if (time >= attacker.nextAttackTime) {
-                    // 기존 타겟이 없거나, 죽었거나, 사거리 밖으로 나갔는지 확인
+                    
+                    // ✅ [스마트 타겟팅 1] 현재 타겟이 이번 턴에 이미 죽을 운명인지 확인 (예상 HP 계산)
+                    int pendingDamage = tickDamageAccumulator.getOrDefault(attacker.currentTarget, 0);
+                    boolean isTargetDeadOrDying = attacker.currentTarget != null && (attacker.currentTarget.hp - pendingDamage <= 0);
+
+                    // 타겟 유효성 검사 (없거나, 이미 죽었거나, 사거리 밖이거나, **이번 턴에 죽을 예정이면**)
                     if (attacker.currentTarget == null || 
-                        attacker.currentTarget.hp <= 0 || 
+                        isTargetDeadOrDying || 
                         getDistance(attacker.x, attacker.y, attacker.currentTarget.x, attacker.currentTarget.y) > attacker.stats.getRange()) {
                         
-                        // 타겟이 유효하지 않으면 새로운 적 탐색
+                        // ✅ [스마트 타겟팅 2] 새로운 적 탐색 시, '이미 죽을 예정인 적'은 배제함
                         List<SimUnit> possibleTargets = units.stream()
-                            .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0)
+                            .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0) // 현재 살아있고
+                            .filter(u -> (u.hp - tickDamageAccumulator.getOrDefault(u, 0)) > 0) // ❗이번 턴에 안 죽을 놈만
                             .filter(u -> getDistance(attacker.x, attacker.y, u.x, u.y) <= attacker.stats.getRange())
                             .collect(Collectors.toList());
 
-                    if (!possibleTargets.isEmpty()) {
-                        attacker.currentTarget = possibleTargets.get(new Random().nextInt(possibleTargets.size()));
+                        if (!possibleTargets.isEmpty()) {
+                            attacker.currentTarget = possibleTargets.get(new Random().nextInt(possibleTargets.size()));
                         } else {
                             attacker.currentTarget = null;
                         }
                     }
-                    
-                    // 3. 공격 실행 (타겟이 존재하면 무조건 공격)
-                    // ✅ [수정 3] 공격 로직을 타겟 탐색 if문 밖으로 빼서, 타겟이 유지되는 동안에도 계속 때리게 함
+
+                    // 공격 실행
                     if (attacker.currentTarget != null) {
                         AbilityHandler handler = abilityHandlers.getOrDefault(attacker.type, defaultHandler);
-                        
-                        // 저장된 currentTarget을 공격
                         handler.execute(attacker, attacker.currentTarget, units, logs, time, tickDamageAccumulator);
                         
+                        // ✅ [머신건 버그 수정] 
+                        // 공격 쿨타임이 현재 시간보다 너무 뒤쳐졌다면(Idle 상태였다면), 현재 시간 기준으로 재조정
+                        if (attacker.nextAttackTime < time) {
+                            attacker.nextAttackTime = time;
+                        }
+                        
+                        // 다음 공격 시간 예약
                         attacker.nextAttackTime += 1000.0 / attacker.stats.getAps();
                     }
                 }
             }
 
-            // ✅ [핵심 4] 모든 유닛의 공격 계산이 끝난 후, 데미지 일괄 적용
+            // 데미지 일괄 적용
             tickDamageAccumulator.forEach((unit, damage) -> {
                 unit.hp -= damage;
             });
