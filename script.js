@@ -562,60 +562,37 @@ let selectedDiceFromHand = null; // 내가 배치하려고 선택한 주사위
 
 // 서버에서 받은 손패(주사위 2개)를 화면에 그리는 함수
 function renderHand() {
-    const handDiv = document.getElementById('battle-hand');
-    if (!handDiv) {
-        console.error("❌ [RenderHand] 'battle-hand' 요소를 찾을 수 없습니다.");
-        return;
-    }
+    const handDiv = document.getElementById('battle-hand'); // index.html의 손패 영역
+    if (!handDiv) return;
 
-    // [디버깅] 데이터 확인
-    console.log(`🎲 [RenderHand] 렌더링 시작. 내 핸드:`, myHand);
-    console.log(`📚 [RenderHand] 전체 주사위 정보(allDice):`, allDice);
-
-    handDiv.innerHTML = ""; // 초기화
-
-    // 1. 핸드가 비어있는 경우 (서버 문제)
-    if (!myHand || myHand.length === 0) {
-        handDiv.innerHTML = "<p style='color: #7f8c8d;'>배치할 주사위가 없습니다.</p>";
-        console.warn("⚠️ [RenderHand] myHand가 비어있습니다. 덱이 저장되지 않았거나 서버 오류일 수 있습니다.");
-        return;
-    }
-
-    // 2. 전체 주사위 데이터가 로드되지 않은 경우 (로딩 문제)
-    if (!allDice || allDice.length === 0) {
-        handDiv.innerHTML = "<p>데이터 로딩 중...</p>";
-        console.warn("⚠️ [RenderHand] allDice 데이터가 아직 로드되지 않았습니다.");
-        return;
-    }
+    handDiv.innerHTML = ""; // 기존 손패 초기화
 
     myHand.forEach(diceType => {
+        // 전체 주사위 데이터(allDice)에서 해당 타입의 정보를 찾음
         const diceInfo = allDice.find(d => d.diceType === diceType);
         
         if (diceInfo) {
             const card = document.createElement('div');
-            // ✅ 기존 카드 스타일 유지
-            card.className = 'dice-card'; 
+            card.className = 'dice-card';
             card.style.borderColor = diceInfo.color;
-            
-            // 직관적인 디자인 적용 (이전 단계에서 만든 디자인 요소 활용 가능)
             card.innerHTML = `
                 <div class="dice-icon" style="color:${diceInfo.color}">${getDiceEmoji(diceType)}</div>
                 <h4>${diceInfo.name}</h4>
                 <div class="dice-stats">사거리:${diceInfo.range}</div>
             `;
 
+            // 주사위 클릭 시 선택 효과
             card.onclick = () => {
                 document.querySelectorAll('#battle-hand .dice-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
-                selectedDiceFromHand = diceType;
+                selectedDiceFromHand = diceType; // 배치할 주사위로 설정
             };
 
             handDiv.appendChild(card);
-        } else {
-            console.error(`❌ [RenderHand] 알 수 없는 주사위 타입: ${diceType}`);
         }
     });
 }
+
 
 // 유닛 배치 함수
 function onTileClickForBattle(x, y) {
@@ -638,19 +615,13 @@ function onTileClickForBattle(x, y) {
         turn: currentTurn
     };
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
-
-    // UI 반영: 텍스트 대신 디자인된 유닛 추가
-    tileEl.innerText = ""; // 초기화
-
-    const unitDiv = document.createElement('div');
-    unitDiv.className = `dice-unit ${selectedDiceFromHand} new-spawn`;
-    unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(selectedDiceFromHand)}</span>`;
     
-    tileEl.appendChild(unitDiv);
-
+    // UI 반영
+    tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
     tileEl.classList.add('placed-dice');
     tileEl.setAttribute('data-dice', selectedDiceFromHand);
     tileInfo.hasDice = true;
+    
     myHand = myHand.filter(d => d !== selectedDiceFromHand); 
     selectedDiceFromHand = null;
     placementCount++;
@@ -910,36 +881,23 @@ function updateTimerUI() {
 // renderFullMap 보완: 체력바 추가
 function renderFullMap(placements, isBattleMode) {
     if (!placements) return;
-
-    // 1. 기존 유닛 초기화 (중복 방지)
-    document.querySelectorAll('.dice-unit').forEach(el => el.remove());
-    document.querySelectorAll('.hp-bar-container').forEach(el => el.remove());
-
     placements.forEach(p => {
         const tile = document.getElementById(`tile-${p.x}-${p.y}`);
         if (tile) {
-            // ✅ [변경] 텍스트 대신 '유닛 컨테이너' 생성
-            tile.innerText = ""; // 기존 텍스트 제거
-            
-            const unitDiv = document.createElement('div');
-            unitDiv.className = `dice-unit ${p.diceType} new-spawn`; // 타입별 클래스 추가
-            unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(p.diceType)}</span>`;
-            
-            tile.appendChild(unitDiv);
+            tile.innerText = getDiceEmoji(p.diceType);
             tile.classList.add('placed-dice');
-
-            // 진영 색상 (바닥 타일 색상 유지)
+            
+            // 진영 색상
             const tileInfo = mapData.find(m => m.x === p.x && m.y === p.y);
             if (tileInfo) {
-                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "rgba(52, 152, 219, 0.3)"; 
-                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "rgba(231, 76, 60, 0.3)";
+                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "#3498db";
+                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "#e74c3c";
             }
 
             if (isBattleMode) {
-                // 체력바 추가 (타일이 아닌 unitDiv 아래에 두거나 타일에 absolute로 둠)
-                // 여기선 타일(부모)에 둡니다.
+                // 체력바 주입
                 if (!tile.querySelector('.hp-bar-container')) {
-                    tile.setAttribute('data-hp', 100); 
+                    tile.setAttribute('data-hp', 100); // DB 연동 시 p.hp 사용
                     tile.setAttribute('data-max-hp', 100);
                     const bar = document.createElement('div');
                     bar.className = 'hp-bar-container';
@@ -953,6 +911,18 @@ function renderFullMap(placements, isBattleMode) {
 
 let myHp = 5;
 let enemyHp = 5;
+
+// 주사위 타입에 따른 이모지 반환 (선택 사항)
+function getDiceEmoji(type) {
+    const emojis = {
+        'FIRE': '🔥',
+        'WIND': '🌪️',
+        'ELECTRIC': '⚡',
+        'SWORD': '⚔️',
+        'SNIPER': '🎯'
+    };
+    return emojis[type] || "🎲";
+}
 
 function applyDamage(loserUid) {
     // 1. 무승부 판정
