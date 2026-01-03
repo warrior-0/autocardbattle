@@ -690,12 +690,18 @@ function handleBattleMessage(data) {
             if (data.combatLogs && data.combatLogs.length > 0) {
                 lastLogTime = data.combatLogs[data.combatLogs.length - 1].timeDelay;
             }
+            
             // 아무 공격이 없었다면(0ms) 2초 뒤에, 공격이 있었다면 마지막 공격 2초 뒤에 종료
             let actualEndTime = lastLogTime + 2000; 
-        
+
             // 3. [핵심] UI 타이머 시간: 30초 고정 (스포일러 방지)
             // 실제 전투가 5초 만에 끝나더라도 UI는 30초부터 카운트다운해 결과를 미리 짐작 못하게 합니다.
             let uiDisplayTime = 30000; 
+
+            // ✅ [추가] 만약 전투가 너무 길어 30초를 넘어가면, UI 타이머가 끝날 때(30초) 맞춰서 종료하도록 보정
+            if (actualEndTime > uiDisplayTime) {
+                actualEndTime = uiDisplayTime; 
+            }
         
             // 4. UI 표시
             document.getElementById('battle-hand-section').style.display = 'block';
