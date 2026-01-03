@@ -47,6 +47,7 @@ public class BattleService {
         String uid; int x, y; String type; int hp; int maxHp; 
         double nextAttackTime; // 정밀한 계산을 위해 double 유지
         DiceEntity stats;
+        SimUnit currentTarget; // ✅ [추가] 현재 추적 중인 타겟
         
         SimUnit(BattleMessage p, DiceEntity diceStats) {
             this.uid = p.getSender();
@@ -266,19 +267,33 @@ public class BattleService {
                 if (attacker.hp <= 0) continue;
 
                 if (time >= attacker.nextAttackTime) {
-                    List<SimUnit> targets = units.stream()
-                        .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0)
-                        .filter(u -> getDistance(attacker.x, attacker.y, u.x, u.y) <= attacker.stats.getRange())
-                        .collect(Collectors.toList());
+                    // 기존 타겟이 없거나, 죽었거나, 사거리 밖으로 나갔는지 확인
+                    if (attacker.currentTarget == null || 
+                        attacker.currentTarget.hp <= 0 || 
+                        getDistance(attacker.x, attacker.y, attacker.currentTarget.x, attacker.currentTarget.y) > attacker.stats.getRange()) {
+                        
+                        // 타겟이 유효하지 않으면 새로운 적 탐색
+                        List<SimUnit> possibleTargets = units.stream()
+                            .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0)
+                            .filter(u -> getDistance(attacker.x, attacker.y, u.x, u.y) <= attacker.stats.getRange())
+                            .collect(Collectors.toList());
 
-                    if (!targets.isEmpty()) {
-                        SimUnit target = targets.get(new Random().nextInt(targets.size()));
+                    if (!possibleTargets.isEmpty()) {
+                        attacker.currentTarget = possibleTargets.get(new Random().nextInt(possibleTargets.size()));
+                        } else {
+                            attacker.currentTarget = null;
+                        }
+                    }
+                    
+                    // 3. 공격 실행 (타겟이 존재하면 무조건 공격)
+                    // ✅ [수정 3] 공격 로직을 타겟 탐색 if문 밖으로 빼서, 타겟이 유지되는 동안에도 계속 때리게 함
+                    if (attacker.currentTarget != null) {
                         AbilityHandler handler = abilityHandlers.getOrDefault(attacker.type, defaultHandler);
                         
-                        // 데미지를 즉시 적용하지 않고 장바구니에 담음
-                        handler.execute(attacker, target, units, logs, time, tickDamageAccumulator);
+                        // 저장된 currentTarget을 공격
+                        handler.execute(attacker, attacker.currentTarget, units, logs, time, tickDamageAccumulator);
                         
-                        attacker.nextAttackTime = time + (1000.0 / attacker.stats.getAps());
+                        attacker.nextAttackTime += 1000.0 / attacker.stats.getAps();
                     }
                 }
             }
