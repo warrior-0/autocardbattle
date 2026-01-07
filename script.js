@@ -623,7 +623,8 @@ function onTileClickForBattle(x, y) {
     // 유닛 박스 생성
     const unitDiv = document.createElement('div');
     // CSS에 정의된 dice-unit과 속성 클래스(FIRE 등), 그리고 애니메이션 추가
-    unitDiv.className = `dice-unit ${selectedDiceFromHand} new-spawn`; 
+    // ✅ 'mine' 클래스를 추가하여 내 유닛임을 표시합니다.
+    unitDiv.className = `dice-unit ${selectedDiceFromHand} mine new-spawn`; 
     unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(selectedDiceFromHand)}</span>`;
     
     tileEl.appendChild(unitDiv); // 타일에 유닛 삽입
@@ -910,10 +911,13 @@ function renderFullMap(placements, isBattleMode) {
         if (tile) {
             // 초기화
             tile.innerText = "";
-            
-            // 유닛 렌더링
+            // ✅ 현재 유저의 ID와 비교하여 내 유닛인지 상대 유닛인지 판별합니다.
+            const isMine = p.sender === currentUser.firebaseUid;
+            const ownershipClass = isMine ? 'mine' : 'enemy';
+
             const unitDiv = document.createElement('div');
-            unitDiv.className = `dice-unit ${p.diceType} new-spawn`;
+            // ✅ ownershipClass(mine 또는 enemy)를 클래스에 추가합니다.
+            unitDiv.className = `dice-unit ${p.diceType} ${ownershipClass} new-spawn`;
             unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(p.diceType)}</span>`;
             tile.appendChild(unitDiv);
             tile.classList.add('placed-dice');
