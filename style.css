@@ -110,14 +110,14 @@ body {
 
 /* 내 유닛: 하얀색 테두리 */
 .dice-unit.mine {
-    border: 5px solid #ffffff !important; /* 선명한 하얀색 */
+    border: 4px solid #ffffff !important; /* 선명한 하얀색 */
     box-shadow: 0 4px 10px rgba(255, 255, 255, 0.3), /* 하얀 광채 살짝 추가 */
                 inset 0 2px 3px rgba(255,255,255,0.6);
 }
 
 /* 상대 유닛: 검정색 테두리 */
 .dice-unit.enemy {
-    border: 5px solid #000000 !important; /* 선명한 검정색 */
+    border: 4px solid #000000 !important; /* 선명한 검정색 */
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5), /* 어두운 그림자 강조 */
                 inset 0 2px 3px rgba(255,255,255,0.2);
 }
@@ -363,6 +363,6 @@ body {
     }
 
    .dice-unit.mine, .dice-unit.enemy {
-        border-width: 2px !important;
+        border-width: 3px !important;
     }
 }
