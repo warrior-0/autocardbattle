@@ -888,27 +888,45 @@ function updateTimerUI() {
     if (timerEl) timerEl.innerText = `남은 시간: ${timeLeft}초`;
 }
 
-// renderFullMap 보완: 체력바 추가
+// 맵 로딩과 유닛 체력바
 function renderFullMap(placements, isBattleMode) {
     if (!placements) return;
+
+    // 1. 기존 유닛 초기화
+    document.querySelectorAll('.dice-unit').forEach(el => el.remove());
+    document.querySelectorAll('.hp-bar-container').forEach(el => el.remove());
+
     placements.forEach(p => {
         const tile = document.getElementById(`tile-${p.x}-${p.y}`);
         if (tile) {
-            tile.innerText = getDiceEmoji(p.diceType);
-            tile.classList.add('placed-dice');
+            // 초기화
+            tile.innerText = "";
             
-            // 진영 색상
+            // 유닛 렌더링
+            const unitDiv = document.createElement('div');
+            unitDiv.className = `dice-unit ${p.diceType} new-spawn`;
+            unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(p.diceType)}</span>`;
+            tile.appendChild(unitDiv);
+            tile.classList.add('placed-dice');
+
+            // 배경색 (진영 표시)
             const tileInfo = mapData.find(m => m.x === p.x && m.y === p.y);
             if (tileInfo) {
-                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "#3498db";
-                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "#e74c3c";
+                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "rgba(52, 152, 219, 0.3)";
+                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "rgba(231, 76, 60, 0.3)";
             }
 
+            // [핵심 수정] 체력바 설정: 실제 DB 데이터(allDice) 활용
             if (isBattleMode) {
-                // 체력바 주입
+                // 해당 주사위 타입의 실제 스탯 찾기
+                const diceInfo = allDice.find(d => d.diceType === p.diceType);
+                const realHp = diceInfo ? diceInfo.hp : 1000; // 못 찾으면 기본 1000
+
                 if (!tile.querySelector('.hp-bar-container')) {
-                    tile.setAttribute('data-hp', 100); // DB 연동 시 p.hp 사용
-                    tile.setAttribute('data-max-hp', 100);
+                    // ✅ 100이 아니라 실제 체력(realHp)을 넣습니다.
+                    tile.setAttribute('data-hp', realHp);
+                    tile.setAttribute('data-max-hp', realHp);
+                    
                     const bar = document.createElement('div');
                     bar.className = 'hp-bar-container';
                     bar.innerHTML = '<div class="hp-bar-fill"></div>';
