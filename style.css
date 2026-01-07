@@ -272,13 +272,13 @@ body {
 
     /* 4. 메뉴 카드: 한 줄로 길게 배치 */
     .menu-container {
-        flex-direction: column; /* 세로 정렬 */
+        flex-direction: row; /* 세로 정렬 */
         align-items: center;
         width: 100%;
     }
 
     .menu-card {
-        width: 90%; /* 화면 꽉 차게 */
+        width: 30%; /* 화면 꽉 차게 */
         padding: 20px;
         display: flex;
         align-items: center;
@@ -322,14 +322,6 @@ body {
     .dice-grid {
         gap: 8px;
     }
-
-    .dice-card {
-        width: 45%; /* 한 줄에 2개씩 배치 (반반) */
-        padding: 10px;
-        font-size: 0.8rem;
-    }
-    
-    .dice-icon { font-size: 1.5rem; }
     
     /* 전투 중 손패 영역 */
     #battle-hand-section {
