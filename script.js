@@ -980,12 +980,16 @@ function renderFullMap(placements, isBattleMode) {
             if (isBattleMode) {
                 // 해당 주사위 타입의 실제 스탯 찾기
                 const diceInfo = allDice.find(d => d.diceType === p.diceType);
-                const realHp = diceInfo ? diceInfo.hp : 1000; // 못 찾으면 기본 1000
+                const realHp = diceInfo.hp;
+
+                // n = level - 1
+                // 공식: Base * (1 + 0.7 * n)
+                const n = level - 1;
+                const scaledHp = Math.floor(baseHp * (1 + 0.7 * n));
 
                 if (!tile.querySelector('.hp-bar-container')) {
-                    // ✅ 100이 아니라 실제 체력(realHp)을 넣습니다.
-                    tile.setAttribute('data-hp', realHp);
-                    tile.setAttribute('data-max-hp', realHp);
+                    tile.setAttribute('data-hp', scaledHp);
+                    tile.setAttribute('data-max-hp', scaledHp);
                     
                     const bar = document.createElement('div');
                     bar.className = 'hp-bar-container';
