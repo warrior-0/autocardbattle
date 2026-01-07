@@ -300,6 +300,18 @@ function navTo(page) {
         document.querySelector('.actions').style.display = 'block';
         const h2 = document.querySelector('#editor-section h2');
         if (h2) h2.innerText = "🏗️ 맵 빌더";
+        // ✅ [추가] 전투 때 숨겼던 '홈으로' 버튼을 다시 보이게 설정
+        const backBtn = document.querySelector('#editor-section .back-btn');
+        if (backBtn) backBtn.style.display = 'inline-block'; // 또는 'block'
+
+        // ✅ [추가] 전투 때 보였던 '타이머'를 숨김
+        const timerContainer = document.getElementById('battle-timer-container');
+        if (timerContainer) timerContainer.style.display = 'none';
+
+        // ✅ [추가] 혹시 돌아가고 있을지 모를 전투 타이머 정지
+        if (typeof battleTimer !== 'undefined' && battleTimer) {
+            clearInterval(battleTimer);
+        }
         initMap(); 
     } 
     else if (page === 'battle') {
