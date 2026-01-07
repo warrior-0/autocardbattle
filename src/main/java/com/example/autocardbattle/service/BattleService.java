@@ -79,7 +79,7 @@ public class BattleService {
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "FIRE", time));
 
-            final int splashDmg = dmg / 2;
+            final int splashDmg = dmg*2/5;
             allUnits.stream()
                 .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0 && u != target)
                 .filter(u -> getDistance(target.x, target.y, u.x, u.y) <= 1)
@@ -92,7 +92,7 @@ public class BattleService {
         // 2. 🎯 SNIPER
         abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
-            int finalDmg = attacker.stats.getDamage() + (dist * 10);
+            int finalDmg = attacker.stats.getDamage() + (dist * attacker.stats.getDamage() * 3 / 10);
             
             damageQueue.merge(target, finalDmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, finalDmg, "SNIPER", time));
@@ -101,6 +101,7 @@ public class BattleService {
         // 3. ⚡ ELECTRIC
         abilityHandlers.put("ELECTRIC", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dmg = attacker.stats.getDamage();
+            int chaindmg = dmg*5/7;
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "ELECTRIC", time));
 
@@ -110,8 +111,8 @@ public class BattleService {
                 .orElse(null);
 
             if (chainTarget != null && getDistance(target.x, target.y, chainTarget.x, chainTarget.y) <= 2) {
-                damageQueue.merge(chainTarget, dmg, Integer::sum);
-                logs.add(new CombatLogEntry(target.x, target.y, chainTarget.x, chainTarget.y, dmg, "ELECTRIC_CHAIN", time));
+                damageQueue.merge(chainTarget, chaindmg, Integer::sum);
+                logs.add(new CombatLogEntry(target.x, target.y, chainTarget.x, chainTarget.y, chaindmg, "ELECTRIC_CHAIN", time));
             }
         });
 
