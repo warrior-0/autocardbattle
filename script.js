@@ -909,13 +909,6 @@ function renderFullMap(placements, isBattleMode) {
             tile.appendChild(unitDiv);
             tile.classList.add('placed-dice');
 
-            // 배경색 (진영 표시)
-            const tileInfo = mapData.find(m => m.x === p.x && m.y === p.y);
-            if (tileInfo) {
-                if (tileInfo.tileType === 'MY_TILE') tile.style.backgroundColor = "rgba(52, 152, 219, 0.3)";
-                else if (tileInfo.tileType === 'ENEMY_TILE') tile.style.backgroundColor = "rgba(231, 76, 60, 0.3)";
-            }
-
             // [핵심 수정] 체력바 설정: 실제 DB 데이터(allDice) 활용
             if (isBattleMode) {
                 // 해당 주사위 타입의 실제 스탯 찾기
