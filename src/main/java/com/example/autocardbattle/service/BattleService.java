@@ -174,8 +174,7 @@ public class BattleService {
         // 2. 🎯 SNIPER
         abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
-            double finalMultiple = dist * 0.3 * (1.0 + 0.1 * (attacker.level - 1))+1;
-            int finalDmg = attacker.damage * finalMultiple;
+            int finalDmg = attacker.damage * (dist * 0.3 * (1.0 + 0.1 * (attacker.level - 1))+1);
             
             damageQueue.merge(target, finalDmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, finalDmg, "SNIPER", time));
