@@ -16,6 +16,9 @@ public class BattleMessage {
     private String diceType;
     private int turn;
 
+    // ✅ [추가] 유닛의 레벨(성급) 정보를 전달받기 위한 필드
+    private int level;
+
     private String loserUid; 
     private List<BattleMessage> allPlacements;
     private List<String> nextHand;
