@@ -324,7 +324,7 @@ body {
     }
 
     .dice-card {
-        width: 45%; /* 한 줄에 2개씩 배치 (반반) */
+        width: 35%; /* 한 줄에 2개씩 배치 (반반) */
         padding: 10px;
         font-size: 0.8rem;
     }
