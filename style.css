@@ -163,7 +163,6 @@ body {
 --------------------------------------------------------- */
 .menu-container { display: flex; gap: 20px; justify-content: center; margin-top: 50px; }
 .menu-card { width: 200px; padding: 30px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); cursor: pointer; text-align: center; }
-.menu-card:hover { transform: translateY(-5px); border: 2px solid #29b6f6; }
 .dice-grid { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; margin-bottom: 20px; }
 .dice-card { width: 150px; padding: 15px; border: 2px solid #ccc; border-radius: 10px; cursor: pointer; background: white; }
 .dice-card.selected { background-color: #e1f5fe; border-color: #29b6f6; transform: scale(1.05); }
@@ -175,3 +174,130 @@ body {
 @keyframes spin { 100% { transform: rotate(360deg); } }
 @keyframes popIn { 0% { transform: scale(0); } 80% { transform: scale(1.1); } 100% { transform: scale(1); } }
 .dice-unit.new-spawn { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+/* =========================================================
+   [모바일 전용 스타일] 화면 너비 768px 이하일 때 적용
+   - 그리드 자동 축소, 메뉴 세로 배치, 터치 최적화
+========================================================= */
+@media (max-width: 768px) {
+    
+    /* 1. 전체 레이아웃: 여백 줄이고 상단 정렬 */
+    body {
+        padding: 10px;
+        align-items: flex-start;
+        overflow-x: hidden; /* 가로 스크롤 방지 */
+    }
+
+    .game-section {
+        padding: 0;
+        margin-top: 20px;
+    }
+
+    /* 2. 전장(Grid) 리사이징: 화면 꽉 차게 자동 조절 */
+    .grid-container {
+        /* 고정 px 대신 화면 비율(fr) 사용 */
+        grid-template-columns: repeat(8, 1fr); 
+        width: 100%;       /* 부모 컨테이너 꽉 채움 */
+        max-width: 95vw;   /* 화면 너비 넘지 않게 */
+        gap: 3px;          /* 간격 좁힘 */
+        padding: 5px;
+    }
+
+    .tile {
+        width: auto;       /* 그리드 칸에 맞춰 자동 조절 */
+        height: auto;
+        aspect-ratio: 1/1; /* 정사각형 비율 강제 유지 */
+        border-radius: 4px;
+    }
+
+    /* 3. 유닛 및 아이콘 크기 최적화 */
+    .unit-icon {
+        font-size: 5vw; /* 화면 크기에 비례해서 이모지 크기 조절 */
+    }
+    
+    .dice-unit {
+        border-width: 1px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3); /* 그림자 약간 축소 */
+    }
+    
+    /* 입체 효과 높이 줄임 (모바일은 터치가 주력이므로) */
+    .tile.MY_TILE { transform: translateY(-2px); box-shadow: 0 2px 0px #4fc3f7; }
+    .tile.MY_TILE:hover { transform: translateY(-2px); } /* 호버 효과 제거/고정 */
+
+    /* 4. 메뉴 카드: 한 줄로 길게 배치 */
+    .menu-container {
+        flex-direction: column; /* 세로 정렬 */
+        align-items: center;
+        width: 100%;
+    }
+
+    .menu-card {
+        width: 90%; /* 화면 꽉 차게 */
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 20px;
+        text-align: left;
+    }
+    
+    .menu-card .icon {
+        font-size: 2rem; /* 아이콘 크기 조정 */
+        margin-bottom: 0;
+    }
+
+    /* 5. 전투 HUD (체력바, 타이머) */
+    .battle-hud {
+        padding: 5px;
+        flex-wrap: wrap; /* 공간 부족하면 줄바꿈 */
+        gap: 10px;
+        justify-content: center;
+    }
+    
+    .player-info {
+        width: 45%; /* 좌우 정보창 너비 배분 */
+        font-size: 0.8rem;
+    }
+    
+    .timer-display {
+        order: -1; /* 타이머를 맨 위로 올림 */
+        width: 100%;
+        text-align: center;
+        font-size: 1.2rem;
+        padding: 5px;
+        margin-bottom: 5px;
+    }
+    
+    /* 체력바 두께 조절 */
+    .hp-bar-big { height: 8px; }
+    .hp-bar-container { height: 4px; top: -6px; } /* 유닛 머리 위 체력바 */
+
+    /* 6. 덱 에디터 & 손패 카드 */
+    .dice-grid {
+        gap: 8px;
+    }
+
+    .dice-card {
+        width: 45%; /* 한 줄에 2개씩 배치 (반반) */
+        padding: 10px;
+        font-size: 0.8rem;
+    }
+    
+    .dice-icon { font-size: 1.5rem; }
+    
+    /* 전투 중 손패 영역 */
+    #battle-hand-section {
+        width: 100%;
+        overflow-x: auto; /* 카드가 많으면 가로 스크롤 */
+    }
+    
+    #battle-hand {
+        justify-content: flex-start; /* 왼쪽부터 정렬 */
+        padding-bottom: 10px;
+    }
+    
+    #battle-hand .dice-card {
+        min-width: 80px; /* 카드 최소 크기 보장 */
+        width: 80px;
+    }
+}
