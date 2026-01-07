@@ -104,7 +104,7 @@ public class BattleService {
             this.stats = diceStats;
 
             // 1. 합친 횟수(n) 계산: 레벨이 0이면 1로 간주
-            int level = p.getLevel() > 0 ? p.getLevel() : 1;
+            this.level = p.getLevel() > 0 ? p.getLevel() : 1;
             int n = level - 1; 
 
             // 2. 체력(HP) 계산: 기본 * (1 + 0.7 * n)
@@ -174,7 +174,7 @@ public class BattleService {
         // 2. 🎯 SNIPER
         abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
-            int finalDmg = attacker.damage * (dist * 0.3 * (1.0 + 0.1 * (attacker.level - 1))+1);
+            int finalDmg = (int) (attacker.damage * (dist * 0.3 * (1.0 + 0.1 * attacker.n) + 1));
             
             damageQueue.merge(target, finalDmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, finalDmg, "SNIPER", time));
