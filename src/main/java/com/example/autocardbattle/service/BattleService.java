@@ -88,7 +88,9 @@ public class BattleService {
 
         // ✅ [추가] 레벨 보정이 적용된 실제 전투 스탯
         int damage; 
-        double aps; 
+        double aps;
+
+        int level;
 
         SimUnit(BattleMessage p, DiceEntity diceStats) {
             this.uid = p.getSender();
@@ -136,7 +138,7 @@ public class BattleService {
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "FIRE", time));
 
-            final int splashDmg = dmg*2/5;
+            final int splashDmg = 20 + 20 * attacker.level;
             allUnits.stream()
                 .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0 && u != target)
                 .filter(u -> getDistance(target.x, target.y, u.x, u.y) <= 1)
@@ -149,7 +151,8 @@ public class BattleService {
         // 2. 🎯 SNIPER
         abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
-            int finalDmg = attacker.damage + (dist * attacker.damage * 3 / 10);
+            double finalMultiple = dist * 0.3 * (1 + 0.1 * (attacker.level - 1))+1;
+            int finalDmg = attacker.damage * finalMultiple;
             
             damageQueue.merge(target, finalDmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, finalDmg, "SNIPER", time));
@@ -158,7 +161,7 @@ public class BattleService {
         // 3. ⚡ ELECTRIC
         abilityHandlers.put("ELECTRIC", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dmg = attacker.damage;
-            int chaindmg = dmg*5/7;
+            int chaindmg = 25 + 25 * attacker.level;
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "ELECTRIC", time));
 
