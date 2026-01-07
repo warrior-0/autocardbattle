@@ -31,34 +31,30 @@ public class BattleService {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private final Map<String, ScheduledFuture<?>> roomTimers = new ConcurrentHashMap<>();
 
-    // ✅ [추가] 62초 뒤에 강제로 진행시키는 메서드
-    private void scheduleTurnTimeout(String roomId, int currentTurn) {
-        // 기존 타이머가 있다면 취소
+    // [수정] 62초(기본) + 전투 애니메이션 시간(extraDelayMs) 만큼 기다리는 메서드
+    private void scheduleTurnTimeout(String roomId, int currentTurn, long extraDelayMs) {
         ScheduledFuture<?> existingTask = roomTimers.get(roomId);
         if (existingTask != null && !existingTask.isDone()) {
             existingTask.cancel(false);
         }
 
-        // 새로운 타임아웃 예약 (62초 후 실행)
+        // 총 대기 시간 = 기본 62초 + 애니메이션 시간
+        long totalDelay = 62000 + extraDelayMs;
+
         ScheduledFuture<?> task = scheduler.schedule(() -> {
             GameState state = games.get(roomId);
             if (state == null) return;
 
             synchronized (state) {
-                // 이미 턴이 넘어갔다면 무시
                 if (state.turn != currentTurn) return;
 
-                // 아직 준비 안 된 유저들도 강제로 준비 상태로 변경
-                // (BattleController에서 방의 유저 목록을 가져와서 처리)
                 Set<String> allUsers = BattleController.roomReadyStatus.get(roomId);
                 if (allUsers != null) {
                     state.readyUsers.addAll(allUsers);
                 }
-                
-                // 강제 전투 시작
                 processBattleResult(state, roomId);
             }
-        }, 62, TimeUnit.SECONDS); // 클라이언트 타이머(60초)보다 약간 여유를 둠
+        }, totalDelay, TimeUnit.MILLISECONDS); // [중요] 단위를 MILLISECONDS로 변경
 
         roomTimers.put(roomId, task);
     }
@@ -321,8 +317,22 @@ public class BattleService {
             state.readyUsers.clear();
             state.turnActionCounts.clear();
             state.turn++;
-            // ✅ [추가] 다음 턴 타임아웃 예약
-            scheduleTurnTimeout(roomId, state.turn);
+
+            // ✅ [추가] 전투 애니메이션 시간 계산 (클라이언트 script.js 로직과 동기화)
+            long lastLogTime = 0;
+            if (simResult.logs != null && !simResult.logs.isEmpty()) {
+                lastLogTime = simResult.logs.get(simResult.logs.size() - 1).getTimeDelay();
+            }
+
+            // 실제 종료 시간 = 마지막 공격 시간 + 2초(여유)
+            long animationDuration = lastLogTime + 2000;
+            
+            // 클라이언트는 최대 30초까지만 애니메이션을 보여주므로 서버도 30초로 제한 (캡핑)
+            if (animationDuration > 30000) {
+                animationDuration = 30000;
+            }
+            // [수정] 다음 턴 타이머 예약 (애니메이션 시간만큼 더 기다려줌)
+            scheduleTurnTimeout(roomId, state.turn, animationDuration);
         }
     }
 
@@ -440,7 +450,7 @@ public class BattleService {
             messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + uid, startMsg);
         }
         // ✅ [추가] 1턴 타임아웃 예약
-        scheduleTurnTimeout(roomId, 1);
+        scheduleTurnTimeout(roomId, 1, 0);
     }
 
     private List<String> generateRandomHand(String userUid) {
