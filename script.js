@@ -594,50 +594,85 @@ function renderHand() {
 }
 
 
-// 유닛 배치 함수 (수정본)
+// [수정] onTileClickForBattle 함수: 합치기(Merge) 로직 추가
 function onTileClickForBattle(x, y) {
-    if (placementCount >= 3) return;
-    if (!selectedDiceFromHand) return;
+    if (placementCount >= 3) return; // 한 턴에 3번 행동 제한
+    if (!selectedDiceFromHand) return; // 손패 선택 필수
 
     const tileInfo = mapData.find(t => t.x === x && t.y === y);
     const tileEl = document.getElementById(`tile-${x}-${y}`);
     
-    // 내 타일이 아니거나 이미 주사위가 있으면 무시
-    if (!tileInfo || tileInfo.tileType !== 'MY_TILE' || tileInfo.hasDice) {
-        return; 
-    }
+    // 내 타일인지 확인
+    if (!tileInfo || tileInfo.tileType !== 'MY_TILE') return;
 
-    // 1. 서버 전송용 페이로드
+    // 1. 빈 칸에 배치하는 경우 (기존 로직)
+    if (!tileInfo.hasDice) {
+        sendPlacement(x, y, selectedDiceFromHand, "PLACE");
+        
+        // UI 즉시 반영 (1레벨)
+        renderTemporaryUnit(tileEl, selectedDiceFromHand, 1);
+        tileInfo.hasDice = true;
+        tileInfo.diceType = selectedDiceFromHand;
+        tileInfo.level = 1;
+        
+        consumeHandCard();
+    } 
+    // 2. ✅ [추가] 이미 유닛이 있는 경우 -> 합치기 시도
+    else {
+        // 같은 종류인지 확인
+        if (tileInfo.diceType === selectedDiceFromHand) {
+            // 현재 레벨 확인 (데이터 없으면 1로 가정)
+            const currentLevel = tileInfo.level || 1;
+            
+            // 최대 레벨 제한 (예: 3성까지만)
+            if (currentLevel >= 7) {
+                alert("이미 최고 레벨입니다!");
+                return;
+            }
+
+            // 합치기(MERGE) 신호 전송
+            sendPlacement(x, y, selectedDiceFromHand, "MERGE");
+            
+            // UI 즉시 반영 (레벨업 효과)
+            const nextLevel = currentLevel + 1;
+            renderTemporaryUnit(tileEl, selectedDiceFromHand, nextLevel, true); // true = merging 효과
+            tileInfo.level = nextLevel;
+            
+            consumeHandCard();
+        } else {
+            alert("다른 종류의 주사위는 합칠 수 없습니다!");
+        }
+    }
+}
+
+// [보조 함수 1] 서버 전송 래퍼
+function sendPlacement(x, y, type, actionType) {
     const payload = {
-        type: "PLACE",
+        type: actionType, // "PLACE" 또는 "MERGE"
         sender: currentUser.firebaseUid,
         x: x, y: y,
-        diceType: selectedDiceFromHand,
+        diceType: type,
         turn: currentTurn
     };
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
-    
-    // 2. [핵심 수정] 배치 즉시 입체적인 디자인 적용
-    tileEl.innerText = ""; // 기존 텍스트(이모지) 제거
+}
 
-    // 유닛 박스 생성
-    const unitDiv = document.createElement('div');
-    // CSS에 정의된 dice-unit과 속성 클래스(FIRE 등), 그리고 애니메이션 추가
-    // ✅ 'mine' 클래스를 추가하여 내 유닛임을 표시합니다.
-    unitDiv.className = `dice-unit ${selectedDiceFromHand} mine new-spawn`; 
-    unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(selectedDiceFromHand)}</span>`;
+// [보조 함수 2] 손패 카드 소모 처리
+function consumeHandCard() {
+    myHand = myHand.filter((d, index) => {
+        // 배열에서 첫 번째로 발견된 해당 타입을 제거 (중복 타입 문제 방지)
+        if (d === selectedDiceFromHand) {
+            selectedDiceFromHand = null; // 제거 후 null 처리로 중복 삭제 방지
+            return false;
+        }
+        return true;
+    });
     
-    tileEl.appendChild(unitDiv); // 타일에 유닛 삽입
-    tileEl.classList.add('placed-dice');
-    tileEl.setAttribute('data-dice', selectedDiceFromHand);
-    
-    // 3. 상태 업데이트
-    tileInfo.hasDice = true;
-    myHand = myHand.filter(d => d !== selectedDiceFromHand); 
+    // 선택 상태 초기화
     selectedDiceFromHand = null;
     placementCount++;
     
-    // 3개 배치 완료 시 처리
+    // 배치 종료 체크
     if (placementCount >= 3) {
         document.getElementById('battle-hand-section').style.display = 'none';
         document.getElementById('battle-hand').innerHTML = ""; 
@@ -646,6 +681,26 @@ function onTileClickForBattle(x, y) {
     } else {
         renderHand(); 
     }
+}
+
+// [보조 함수 3] 임시 유닛 그리기 (반응 속도 향상용)
+function renderTemporaryUnit(tileEl, type, level, isMerging = false) {
+    tileEl.innerText = "";
+    
+    const unitDiv = document.createElement('div');
+    // merging 클래스가 있으면 CSS의 반짝임 애니메이션 발동
+    const mergeClass = isMerging ? 'merging' : 'new-spawn';
+    unitDiv.className = `dice-unit ${type} mine ${mergeClass}`;
+    if (level > 1) unitDiv.style.transform = `scale(${1 + (level * 0.05)})`;
+    
+    const badge = document.createElement('div');
+    badge.className = 'dice-level-badge';
+    badge.innerText = `★${level}`;
+    unitDiv.appendChild(badge);
+
+    unitDiv.innerHTML += `<span class="unit-icon">${getDiceEmoji(type)}</span>`;
+    tileEl.appendChild(unitDiv);
+    tileEl.classList.add('placed-dice');
 }
 
 //현재 턴 정의
