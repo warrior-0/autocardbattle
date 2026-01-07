@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -25,6 +26,42 @@ public class BattleService {
 
     private Map<String, GameState> games = new ConcurrentHashMap<>();
     private final Map<String, AbilityHandler> abilityHandlers = new HashMap<>();
+
+    // ✅ [추가] 턴 제한시간을 관리할 스케줄러
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final Map<String, ScheduledFuture<?>> roomTimers = new ConcurrentHashMap<>();
+
+    // ✅ [추가] 62초 뒤에 강제로 진행시키는 메서드
+    private void scheduleTurnTimeout(String roomId, int currentTurn) {
+        // 기존 타이머가 있다면 취소
+        ScheduledFuture<?> existingTask = roomTimers.get(roomId);
+        if (existingTask != null && !existingTask.isDone()) {
+            existingTask.cancel(false);
+        }
+
+        // 새로운 타임아웃 예약 (62초 후 실행)
+        ScheduledFuture<?> task = scheduler.schedule(() -> {
+            GameState state = games.get(roomId);
+            if (state == null) return;
+
+            synchronized (state) {
+                // 이미 턴이 넘어갔다면 무시
+                if (state.turn != currentTurn) return;
+
+                // 아직 준비 안 된 유저들도 강제로 준비 상태로 변경
+                // (BattleController에서 방의 유저 목록을 가져와서 처리)
+                Set<String> allUsers = BattleController.roomReadyStatus.get(roomId);
+                if (allUsers != null) {
+                    state.readyUsers.addAll(allUsers);
+                }
+                
+                // 강제 전투 시작
+                processBattleResult(state, roomId);
+            }
+        }, 62, TimeUnit.SECONDS); // 클라이언트 타이머(60초)보다 약간 여유를 둠
+
+        roomTimers.put(roomId, task);
+    }
 
     public static class GameState {
         public Map<String, List<BattleMessage>> placements = new HashMap<>();
@@ -277,10 +314,15 @@ public class BattleService {
 
         if (!"NONE".equals(gameOverLoser)) {
             BattleController.removeRoomData(roomId);
+            // ✅ [추가] 게임 종료 시 타이머 제거
+            ScheduledFuture<?> timer = roomTimers.remove(roomId);
+            if (timer != null) timer.cancel(false);
         } else {
             state.readyUsers.clear();
             state.turnActionCounts.clear();
             state.turn++;
+            // ✅ [추가] 다음 턴 타임아웃 예약
+            scheduleTurnTimeout(roomId, state.turn);
         }
     }
 
@@ -397,6 +439,8 @@ public class BattleService {
             startMsg.setMapData(mapDataStr);
             messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + uid, startMsg);
         }
+        // ✅ [추가] 1턴 타임아웃 예약
+        scheduleTurnTimeout(roomId, 1);
     }
 
     private List<String> generateRandomHand(String userUid) {
