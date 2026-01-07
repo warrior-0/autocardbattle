@@ -128,7 +128,7 @@ public class BattleService {
         
         // ✅ 물 디버프 적용 로직
         void applyWaterDebuff(long currentTime, int attackerN) {
-            double reductionPerStack = 0.12 * (1.0 + 0.1 * attackerN);
+            double reductionPerStack = 0.12 * (1.0 + 0.1 * (attackerN - 1));
             if (this.waterStacks < 3) this.waterStacks++;
             this.waterDebuffEndTime = currentTime + 3000;
 
@@ -221,13 +221,13 @@ public class BattleService {
         abilityHandlers.put("WATER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dmg = attacker.damage;
             damageQueue.merge(target, dmg, Integer::sum);
-            target.applyWaterDebuff(time, attacker.n);
+            target.applyWaterDebuff(time, attacker.level);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "WATER", time));
         });
 
         // 7. IRON (쇠): 현재 체력 비례 피해
         abilityHandlers.put("IRON", (attacker, target, allUnits, logs, time, damageQueue) -> {
-            double ratio = 0.10 * (1.0 + 0.1 * attacker.n);
+            double ratio = 0.10 * (1.0 + 0.1 * (attacker.level - 1));
             int bonusDmg = (int) (target.hp * ratio);
             int totalDmg = attacker.damage + bonusDmg;
             damageQueue.merge(target, totalDmg, Integer::sum);
