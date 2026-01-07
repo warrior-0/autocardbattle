@@ -351,7 +351,7 @@ public class BattleService {
                         }
                         
                         // 다음 공격 시간 예약
-                        attacker.nextAttackTime += 1000.0 / attacker.aps();
+                        attacker.nextAttackTime += 1000.0 / attacker.aps;
                     }
                 }
             }
