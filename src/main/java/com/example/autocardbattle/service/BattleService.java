@@ -110,7 +110,7 @@ public class BattleService {
                 .min(Comparator.comparingInt(u -> getDistance(target.x, target.y, u.x, u.y)))
                 .orElse(null);
 
-            if (chainTarget != null && getDistance(target.x, target.y, chainTarget.x, chainTarget.y) <= 2) {
+            if (chainTarget != null && getDistance(target.x, target.y, chainTarget.x, chainTarget.y) <= 1) {
                 damageQueue.merge(chainTarget, chaindmg, Integer::sum);
                 logs.add(new CombatLogEntry(target.x, target.y, chainTarget.x, chainTarget.y, chaindmg, "ELECTRIC_CHAIN", time));
             }
