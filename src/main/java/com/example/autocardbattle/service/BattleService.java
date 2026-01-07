@@ -105,7 +105,7 @@ public class BattleService {
 
             // 1. 합친 횟수(n) 계산: 레벨이 0이면 1로 간주
             this.level = p.getLevel() > 0 ? p.getLevel() : 1;
-            int n = level - 1; 
+            int n = this.level - 1; 
 
             // 2. 체력(HP) 계산: 기본 * (1 + 0.7 * n)
             double hpMultiplier = 1.0 + (0.7 * n);
