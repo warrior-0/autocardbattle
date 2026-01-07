@@ -91,6 +91,7 @@ public class BattleService {
         double aps;
         double baseAps;
         int level;
+        int n;
 
         // ✅ 물 주사위 디버프 상태
         int waterStacks = 0;
