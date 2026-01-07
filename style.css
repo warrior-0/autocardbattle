@@ -132,7 +132,7 @@ body {
     background: #263238;
     border-radius: 3px;
     border: 1px solid rgba(255,255,255,0.3);
-    z-index: 999 !important;;
+    z-index: 999 !important;
     overflow: hidden;
 }
 .hp-bar-fill {
