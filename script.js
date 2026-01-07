@@ -605,11 +605,11 @@ function onTileClickForBattle(x, y) {
     // 내 타일인지 확인
     if (!tileInfo || tileInfo.tileType !== 'MY_TILE') return;
 
-    // 1. 빈 칸에 배치하는 경우 (기존 로직)
+    // 1. 빈 칸에 배치하는 경우 (1레벨)
     if (!tileInfo.hasDice) {
-        sendPlacement(x, y, selectedDiceFromHand, "PLACE");
+        // ✅ 1레벨로 전송
+        sendPlacement(x, y, selectedDiceFromHand, "PLACE", 1);
         
-        // UI 즉시 반영 (1레벨)
         renderTemporaryUnit(tileEl, selectedDiceFromHand, 1);
         tileInfo.hasDice = true;
         tileInfo.diceType = selectedDiceFromHand;
@@ -617,42 +617,35 @@ function onTileClickForBattle(x, y) {
         
         consumeHandCard();
     } 
-    // 2. ✅ [추가] 이미 유닛이 있는 경우 -> 합치기 시도
+    // 2. 합치기(Merge) 경우
     else {
-        // 같은 종류인지 확인
         if (tileInfo.diceType === selectedDiceFromHand) {
-            // 현재 레벨 확인 (데이터 없으면 1로 가정)
             const currentLevel = tileInfo.level || 1;
-            
-            // 최대 레벨 제한 (예: 3성까지만)
             if (currentLevel >= 7) {
-                alert("이미 최고 레벨입니다!");
                 return;
             }
 
-            // 합치기(MERGE) 신호 전송
-            sendPlacement(x, y, selectedDiceFromHand, "MERGE");
-            
-            // UI 즉시 반영 (레벨업 효과)
             const nextLevel = currentLevel + 1;
-            renderTemporaryUnit(tileEl, selectedDiceFromHand, nextLevel, true); // true = merging 효과
+            // ✅ 다음 레벨(nextLevel)로 전송
+            sendPlacement(x, y, selectedDiceFromHand, "MERGE", nextLevel);
+            
+            renderTemporaryUnit(tileEl, selectedDiceFromHand, nextLevel, true);
             tileInfo.level = nextLevel;
             
             consumeHandCard();
-        } else {
-            alert("다른 종류의 주사위는 합칠 수 없습니다!");
         }
     }
 }
 
 // [보조 함수 1] 서버 전송 래퍼
-function sendPlacement(x, y, type, actionType) {
+function sendPlacement(x, y, type, actionType, level) {
     const payload = {
         type: actionType, // "PLACE" 또는 "MERGE"
         sender: currentUser.firebaseUid,
         x: x, y: y,
         diceType: type,
-        turn: currentTurn
+        turn: currentTurn,
+        level: level
     };
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
 }
