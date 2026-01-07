@@ -125,7 +125,7 @@ body {
 --------------------------------------------------------- */
 .hp-bar-container {
     position: absolute;
-    top: -10px;
+    top: 0px;
     left: 10%;
     width: 80%;
     height: 6px;
@@ -157,10 +157,6 @@ body {
 .tile.dead .dice-unit {
     filter: grayscale(100%) brightness(60%);
     transform: scale(0.9);
-}
-
-.tile.ENEMY_TILE .hp-bar-container {
-    top: 0px !important; /* 기존 -10px에서 더 높게 수정 */
 }
 
 /* ---------------------------------------------------------
