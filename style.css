@@ -331,7 +331,7 @@ body {
     
     /* 체력바 두께 조절 */
     .hp-bar-big { height: 8px; }
-    .hp-bar-container { height: 4px; top: -6px; } /* 유닛 머리 위 체력바 */
+    .hp-bar-container { height: 4px; top: 0px; } /* 유닛 머리 위 체력바 */
 
     /* 6. 덱 에디터 & 손패 카드 */
     .dice-grid {
