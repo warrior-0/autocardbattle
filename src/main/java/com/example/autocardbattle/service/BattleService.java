@@ -89,8 +89,12 @@ public class BattleService {
         // ✅ [추가] 레벨 보정이 적용된 실제 전투 스탯
         int damage; 
         double aps;
-
+        double baseAps;
         int level;
+
+        // ✅ 물 주사위 디버프 상태
+        int waterStacks = 0;
+        long waterDebuffEndTime = 0;
 
         SimUnit(BattleMessage p, DiceEntity diceStats) {
             this.uid = p.getSender();
@@ -120,6 +124,25 @@ public class BattleService {
             double attackCycle = 1000.0 / this.aps;
             this.nextAttackTime = attackCycle;
             this.currentTarget = null;
+        }
+        
+        // ✅ 물 디버프 적용 로직
+        void applyWaterDebuff(long currentTime, int attackerN) {
+            double reductionPerStack = 0.12 * (1.0 + 0.1 * attackerN);
+            if (this.waterStacks < 3) this.waterStacks++;
+            this.waterDebuffEndTime = currentTime + 3000;
+
+            double totalReduction = reductionPerStack * this.waterStacks;
+            if (totalReduction > 0.9) totalReduction = 0.9;
+            this.aps = this.baseAps * (1.0 - totalReduction);
+        }
+
+        // ✅ 매 틱마다 디버프 만료 체크
+        void updateStatus(long currentTime) {
+            if (waterStacks > 0 && currentTime > waterDebuffEndTime) {
+                waterStacks = 0;
+                this.aps = this.baseAps;
+            }
         }
     }
 
@@ -151,7 +174,7 @@ public class BattleService {
         // 2. 🎯 SNIPER
         abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
-            double finalMultiple = dist * 0.3 * (1 + 0.1 * (attacker.level - 1))+1;
+            double finalMultiple = dist * 0.3 * (1.0 + 0.1 * (attacker.level - 1))+1;
             int finalDmg = attacker.damage * finalMultiple;
             
             damageQueue.merge(target, finalDmg, Integer::sum);
@@ -185,6 +208,32 @@ public class BattleService {
         
         abilityHandlers.put("SWORD", normalHandler);
         abilityHandlers.put("WIND", normalHandler);
+        
+        // 5. SHIELD (방패): 도발
+        abilityHandlers.put("SHIELD", (attacker, target, allUnits, logs, time, damageQueue) -> {
+            logs.add(new CombatLogEntry(attacker.x, attacker.y, attacker.x, attacker.y, 0, "SHIELD_TAUNT", time));
+            allUnits.stream()
+                .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0)
+                .filter(u -> Math.max(Math.abs(attacker.x - u.x), Math.abs(attacker.y - u.y)) <= 2)
+                .forEach(enemy -> enemy.currentTarget = attacker);
+        });
+
+        // 6. WATER (물): 공속 감소
+        abilityHandlers.put("WATER", (attacker, target, allUnits, logs, time, damageQueue) -> {
+            int dmg = attacker.damage;
+            damageQueue.merge(target, dmg, Integer::sum);
+            target.applyWaterDebuff(time, attacker.n);
+            logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "WATER", time));
+        });
+
+        // 7. IRON (쇠): 현재 체력 비례 피해
+        abilityHandlers.put("IRON", (attacker, target, allUnits, logs, time, damageQueue) -> {
+            double ratio = 0.10 * (1.0 + 0.1 * attacker.n);
+            int bonusDmg = (int) (target.hp * ratio);
+            int totalDmg = attacker.damage + bonusDmg;
+            damageQueue.merge(target, totalDmg, Integer::sum);
+            logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, totalDmg, "IRON", time));
+        });
     }
 
     private final AbilityHandler defaultHandler = (attacker, target, allUnits, logs, time, damageQueue) -> {
@@ -358,7 +407,16 @@ public class BattleService {
             for (SimUnit attacker : units) {
                 if (attacker.hp <= 0) continue;
 
+                attacker.updateStatus(time);
+
                 if (time >= attacker.nextAttackTime) {
+
+                    // ✅ 방패 전용 로직: 타겟 없어도 도발 발동
+                    if ("SHIELD".equals(attacker.type)) {
+                        abilityHandlers.get("SHIELD").execute(attacker, null, units, logs, time, tickDamageAccumulator);
+                        attacker.nextAttackTime += 1000.0 / attacker.aps;
+                        continue;
+                    }
     
                     // 현재 타겟 유효성 검사 (죽을 예정인 적 포함)
                     int pendingDamage = tickDamageAccumulator.getOrDefault(attacker.currentTarget, 0);
