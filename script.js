@@ -594,7 +594,7 @@ function renderHand() {
 }
 
 
-// 유닛 배치 함수
+// 유닛 배치 함수 (수정본)
 function onTileClickForBattle(x, y) {
     if (placementCount >= 3) return;
     if (!selectedDiceFromHand) return;
@@ -602,11 +602,12 @@ function onTileClickForBattle(x, y) {
     const tileInfo = mapData.find(t => t.x === x && t.y === y);
     const tileEl = document.getElementById(`tile-${x}-${y}`);
     
+    // 내 타일이 아니거나 이미 주사위가 있으면 무시
     if (!tileInfo || tileInfo.tileType !== 'MY_TILE' || tileInfo.hasDice) {
         return; 
     }
 
-    // 서버 전송
+    // 1. 서버 전송용 페이로드
     const payload = {
         type: "PLACE",
         sender: currentUser.firebaseUid,
@@ -616,18 +617,26 @@ function onTileClickForBattle(x, y) {
     };
     stompClient.send(`/app/battle/${currentRoomId}/place`, {}, JSON.stringify(payload));
     
-    // UI 반영
-    tileEl.innerText = getDiceEmoji(selectedDiceFromHand);
+    // 2. [핵심 수정] 배치 즉시 입체적인 디자인 적용
+    tileEl.innerText = ""; // 기존 텍스트(이모지) 제거
+
+    // 유닛 박스 생성
+    const unitDiv = document.createElement('div');
+    // CSS에 정의된 dice-unit과 속성 클래스(FIRE 등), 그리고 애니메이션 추가
+    unitDiv.className = `dice-unit ${selectedDiceFromHand} new-spawn`; 
+    unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(selectedDiceFromHand)}</span>`;
+    
+    tileEl.appendChild(unitDiv); // 타일에 유닛 삽입
     tileEl.classList.add('placed-dice');
     tileEl.setAttribute('data-dice', selectedDiceFromHand);
-    tileInfo.hasDice = true;
     
+    // 3. 상태 업데이트
+    tileInfo.hasDice = true;
     myHand = myHand.filter(d => d !== selectedDiceFromHand); 
     selectedDiceFromHand = null;
     placementCount++;
     
-    // ✅ [수정] 3개를 다 놓아도 'COMPLETE'를 보내지 않습니다. 
-    // 서버가 3개를 감지하면 자동으로 시작합니다.
+    // 3개 배치 완료 시 처리
     if (placementCount >= 3) {
         document.getElementById('battle-hand-section').style.display = 'none';
         document.getElementById('battle-hand').innerHTML = ""; 
