@@ -751,33 +751,39 @@ function handleBattleMessage(data) {
     }
 }
 
-// 전투 로그 재생 (투사체 & 체력바)
+// 비행 시간을 상수로 정의 (CSS의 transition 0.3s와 일치시켜야 함)
+const PROJECTILE_FLIGHT_DURATION = 300; 
+
+// 1. 전투 로그 재생 (수정됨)
 function playCombatLogs(logs) {
     logs.forEach(log => {
         setTimeout(() => {
-            // ✅ [수정 1] 공격자(Attacker)가 죽었는지 확인 (좀비 공격 방지)
             const attackerTile = document.getElementById(`tile-${log.attackerX}-${log.attackerY}`);
-            if (attackerTile && attackerTile.classList.contains('dead')) {
-                return; // 공격자가 이미 죽었으면 공격 취소
-            }
-
-            // ✅ [수정 2] 방어자(Target)가 죽었는지 확인 (부관참시 방지)
             const targetTile = document.getElementById(`tile-${log.targetX}-${log.targetY}`);
-            if (targetTile && targetTile.classList.contains('dead')) {
-                return; // 대상이 이미 죽었으면 공격 취소
-            }
 
-            // 둘 다 살아있을 때만 발사!
-            animateProjectile(log.attackerX, log.attackerY, log.targetX, log.targetY, log.attackType);
-            
-            setTimeout(() => {
-                updateUnitHp(log.targetX, log.targetY, log.damage);
-            }, 300);
-        }, log.timeDelay);
+            // 공격자가 죽었더라도 이미 발사된 투사체는 보여줍니다 (동시 타격 허용)
+            // 단, 공격자 타일 자체가 없으면(오류 상황) 스킵
+            if (!attackerTile) return;
+
+            // 투사체 발사! -> 그리고 "도착하면 실행할 함수(Callback)"를 함께 전달합니다.
+            animateProjectile(
+                log.attackerX, 
+                log.attackerY, 
+                log.targetX, 
+                log.targetY, 
+                log.attackType,
+                () => {
+                    // 💥 여기가 핵심: 투사체가 도착한 직후에 실행되는 코드
+                    updateUnitHp(log.targetX, log.targetY, log.damage);
+                }
+            );
+
+        }, log.timeDelay); // 서버가 정해준 발사 타이밍
     });
 }
-// 투사체 애니메이션 (좌표 계산)
-function animateProjectile(sx, sy, tx, ty, type) {
+
+// 2. 투사체 애니메이션 (수정됨: onHit 콜백 추가)
+function animateProjectile(sx, sy, tx, ty, type, onHit) {
     const startTile = document.getElementById(`tile-${sx}-${sy}`);
     const endTile = document.getElementById(`tile-${tx}-${ty}`);
     if (!startTile || !endTile) return;
@@ -789,19 +795,19 @@ function animateProjectile(sx, sy, tx, ty, type) {
     if (type.includes('FIRE')) ball.style.backgroundColor = '#e74c3c';
     else if (type.includes('WIND')) ball.style.backgroundColor = '#3498db';
     else if (type.includes('ELECTRIC')) ball.style.backgroundColor = '#f1c40f';
+    else if (type.includes('SNIPER')) ball.style.backgroundColor = '#2ecc71'; // 저격 추가
     
-    // 시작 위치 (화면 기준 절대 좌표 계산)
+    // 시작 위치 계산
     const sRect = startTile.getBoundingClientRect();
     const eRect = endTile.getBoundingClientRect();
     
-    // body에 붙여서 좌표 제약 없이 이동
     document.body.appendChild(ball);
     
-    // 초기 위치 설정 (+24는 타일 중심 보정값)
+    // 초기 위치
     ball.style.left = (sRect.left + 24) + 'px';
     ball.style.top = (sRect.top + 24) + 'px';
     
-    // 강제 리플로우 (애니메이션 트리거)
+    // 애니메이션 트리거
     ball.getBoundingClientRect(); 
     
     // 목표 위치로 이동
@@ -809,11 +815,14 @@ function animateProjectile(sx, sy, tx, ty, type) {
     const deltaY = eRect.top - sRect.top;
     ball.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
     
-    // 도착 후 제거
-    setTimeout(() => ball.remove(), 300);
+    // ✅ [핵심 변경] 비행 시간이 끝나면 투사체를 지우고, 타격 효과(onHit)를 발생시킴
+    setTimeout(() => {
+        ball.remove();
+        if (onHit) onHit(); // 여기서 updateUnitHp가 실행됨
+    }, PROJECTILE_FLIGHT_DURATION);
 }
 
-// 유닛 체력바 업데이트 및 사망 처리
+// 3. 유닛 체력바 업데이트 (기존 유지)
 function updateUnitHp(x, y, damage) {
     const tile = document.getElementById(`tile-${x}-${y}`);
     if (!tile) return;
@@ -831,7 +840,8 @@ function updateUnitHp(x, y, damage) {
     }
     
     if (currentHp <= 0) {
-        tile.classList.add('dead'); // 회색 처리
+        tile.classList.add('dead');
+        // 죽었을 때 투명도 조절이나 흑백 처리 등을 CSS에서 처리
     }
 }
 
