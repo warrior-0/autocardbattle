@@ -35,6 +35,7 @@ body {
     border-radius: 6px; /* 둥근 모서리 */
     position: relative;
     transition: transform 0.2s, box-shadow 0.2s;
+    overflow: visible !important;
 }
 
 /* ---------------------------------------------------------
