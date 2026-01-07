@@ -1024,11 +1024,13 @@ function getDiceEmoji(type) {
         'WIND': '🌪️',
         'ELECTRIC': '⚡',
         'SWORD': '⚔️',
-        'SNIPER': '🎯'
+        'SNIPER': '🎯',
+        'SHIELD': '🛡️',
+        'WATER': '💧',
+        'IRON': '⚙️'
     };
     return emojis[type] || "🎲";
 }
-
 function applyDamage(loserUid) {
     // 1. 무승부 판정
     if (loserUid === "NONE") {
