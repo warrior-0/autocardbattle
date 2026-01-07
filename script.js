@@ -792,7 +792,7 @@ function playCombatLogs(logs) {
     });
 }
 
-// 2. 투사체 애니메이션 (수정됨: onHit 콜백 추가)
+// 투사체 애니메이션 함수
 function animateProjectile(sx, sy, tx, ty, type, onHit) {
     const startTile = document.getElementById(`tile-${sx}-${sy}`);
     const endTile = document.getElementById(`tile-${tx}-${ty}`);
@@ -801,35 +801,41 @@ function animateProjectile(sx, sy, tx, ty, type, onHit) {
     const ball = document.createElement('div');
     ball.className = 'projectile';
     
-    // 공격 타입별 색상
+    // 공격 타입별 색상 설정
     if (type.includes('FIRE')) ball.style.backgroundColor = '#e74c3c';
     else if (type.includes('WIND')) ball.style.backgroundColor = '#3498db';
     else if (type.includes('ELECTRIC')) ball.style.backgroundColor = '#f1c40f';
-    else if (type.includes('SNIPER')) ball.style.backgroundColor = '#2ecc71'; // 저격 추가
+    else if (type.includes('SNIPER')) ball.style.backgroundColor = '#2ecc71';
     
-    // 시작 위치 계산
+    // 현재 화면 기준 위치 계산
     const sRect = startTile.getBoundingClientRect();
     const eRect = endTile.getBoundingClientRect();
     
+    // 🔍 [핵심 수정] 스크롤 값을 더해 절대 좌표로 투사체 생성
+    // 부모 요소가 body인 경우 스크롤 위치를 더해줘야 스크롤 시 위치가 고정됩니다.
     document.body.appendChild(ball);
     
-    // 초기 위치
-    ball.style.left = (sRect.left + 24) + 'px';
-    ball.style.top = (sRect.top + 24) + 'px';
+    // 시작 위치 (스크롤 값 반영)
+    const startX = sRect.left + window.scrollX + (sRect.width / 2) - 6; // 중앙 정렬 보정
+    const startY = sRect.top + window.scrollY + (sRect.height / 2) - 6;
     
-    // 애니메이션 트리거
+    ball.style.left = startX + 'px';
+    ball.style.top = startY + 'px';
+    
+    // 애니메이션 트리거를 위한 강제 리플로우
     ball.getBoundingClientRect(); 
     
-    // 목표 위치로 이동
+    // 🔍 [핵심 수정] 목표 위치로의 이동 거리는 상대 좌표(delta)이므로 스크롤에 영향을 받지 않아야 함
     const deltaX = eRect.left - sRect.left;
     const deltaY = eRect.top - sRect.top;
+    
     ball.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
     
-    // ✅ [핵심 변경] 비행 시간이 끝나면 투사체를 지우고, 타격 효과(onHit)를 발생시킴
+    // 비행 완료 후 처리
     setTimeout(() => {
         ball.remove();
-        if (onHit) onHit(); // 여기서 updateUnitHp가 실행됨
-    }, PROJECTILE_FLIGHT_DURATION);
+        if (onHit) onHit(); // 타격 효과 실행
+    }, 300);
 }
 
 // 3. 유닛 체력바 업데이트 (기존 유지)
