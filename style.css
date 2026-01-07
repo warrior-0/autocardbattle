@@ -365,4 +365,10 @@ body {
    .dice-unit.mine, .dice-unit.enemy {
         border-width: 3px !important;
     }
+   
+   .projectile {
+        width: 6px !important;  /* 기존 12px에서 6px로 축소 */
+        height: 6px !important;
+        box-shadow: 0 0 4px rgba(255, 235, 59, 0.8) !important; /* 그림자 효과도 작게 조정 */
+    }
 }
