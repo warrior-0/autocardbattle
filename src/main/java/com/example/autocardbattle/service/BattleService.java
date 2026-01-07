@@ -98,7 +98,7 @@ public class BattleService {
     public void initStrategies() {
         // 1. 🔥 FIRE
         abilityHandlers.put("FIRE", (attacker, target, allUnits, logs, time, damageQueue) -> {
-            int dmg = attacker.damage();
+            int dmg = attacker.damage;
             // target.hp -= dmg; 대신 damageQueue에 추가
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "FIRE", time));
@@ -116,7 +116,7 @@ public class BattleService {
         // 2. 🎯 SNIPER
         abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
-            int finalDmg = attacker.damage() + (dist * attacker.damage() * 3 / 10);
+            int finalDmg = attacker.damage + (dist * attacker.damage * 3 / 10);
             
             damageQueue.merge(target, finalDmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, finalDmg, "SNIPER", time));
@@ -124,7 +124,7 @@ public class BattleService {
 
         // 3. ⚡ ELECTRIC
         abilityHandlers.put("ELECTRIC", (attacker, target, allUnits, logs, time, damageQueue) -> {
-            int dmg = attacker.damage();
+            int dmg = attacker.damage;
             int chaindmg = dmg*5/7;
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "ELECTRIC", time));
@@ -142,7 +142,7 @@ public class BattleService {
 
         // 4. ⚔️ NORMAL
         AbilityHandler normalHandler = (attacker, target, allUnits, logs, time, damageQueue) -> {
-            int dmg = attacker.damage();
+            int dmg = attacker.damage;
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "NORMAL", time));
         };
@@ -152,7 +152,7 @@ public class BattleService {
     }
 
     private final AbilityHandler defaultHandler = (attacker, target, allUnits, logs, time, damageQueue) -> {
-        int dmg = attacker.damage();
+        int dmg = attacker.damage;
         damageQueue.merge(target, dmg, Integer::sum);
         logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "NORMAL", time));
     };
