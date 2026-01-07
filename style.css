@@ -175,6 +175,52 @@ body {
 @keyframes popIn { 0% { transform: scale(0); } 80% { transform: scale(1.1); } 100% { transform: scale(1); } }
 .dice-unit.new-spawn { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 
+/* 1. 인증 관련 버튼 (로그인/회원가입 하기) */
+#main-auth-btn {
+    width: 100%;
+    padding: 15px 20px; /* 크기를 더 크게 조절 */
+    font-size: 18px;    /* 글자 크기 확대 */
+    font-weight: bold;
+    color: white;
+    background: linear-gradient(135deg, #ff4757, #ff6b81); /* 선명한 빨간색 그라데이션 */
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4); /* 빨간색 광채 효과 */
+    transition: all 0.2s ease;
+    margin-top: 10px;
+}
+
+/* 2. 로그아웃 버튼 */
+.logout-btn {
+    display: block;
+    width: 200px;       /* 버튼 너비 확보 */
+    margin: 30px auto;  /* 중앙 정렬 및 여백 */
+    padding: 15px 25px; /* 크기를 더 크게 조절 */
+    font-size: 16px;
+    font-weight: bold;
+    color: white;
+    background: #e74c3c; /* 단색 빨간색 */
+    border: 2px solid #c0392b;
+    border-radius: 10px;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    transition: all 0.2s;
+}
+
+.logout-btn:hover {
+    background: #c0392b;
+    transform: scale(1.05); /* 마우스 올리면 살짝 커짐 */
+    box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+}
+
+/* 3. 회원가입 전환 링크 강조 (선택 사항) */
+#auth-switch-text a {
+    color: #ff4757;
+    font-weight: bold;
+    text-decoration: none;
+}
+
 /* =========================================================
    [모바일 전용 스타일] 화면 너비 768px 이하일 때 적용
    - 그리드 자동 축소, 메뉴 세로 배치, 터치 최적화
