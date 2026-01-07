@@ -266,25 +266,36 @@ public class BattleService {
                 if (attacker.hp <= 0) continue;
 
                 if (time >= attacker.nextAttackTime) {
-                    
-                    // ✅ [스마트 타겟팅 1] 현재 타겟이 이번 턴에 이미 죽을 운명인지 확인 (예상 HP 계산)
+    
+                    // 현재 타겟 유효성 검사 (죽을 예정인 적 포함)
                     int pendingDamage = tickDamageAccumulator.getOrDefault(attacker.currentTarget, 0);
                     boolean isTargetDeadOrDying = attacker.currentTarget != null && (attacker.currentTarget.hp - pendingDamage <= 0);
-
-                    // 타겟 유효성 검사 (없거나, 이미 죽었거나, 사거리 밖이거나, **이번 턴에 죽을 예정이면**)
+                
                     if (attacker.currentTarget == null || 
                         isTargetDeadOrDying || 
                         getDistance(attacker.x, attacker.y, attacker.currentTarget.x, attacker.currentTarget.y) > attacker.stats.getRange()) {
                         
-                        // ✅ [스마트 타겟팅 2] 새로운 적 탐색 시, '이미 죽을 예정인 적'은 배제함
-                        List<SimUnit> possibleTargets = units.stream()
-                            .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0) // 현재 살아있고
-                            .filter(u -> (u.hp - tickDamageAccumulator.getOrDefault(u, 0)) > 0) // ❗이번 턴에 안 죽을 놈만
-                            .filter(u -> getDistance(attacker.x, attacker.y, u.x, u.y) <= attacker.stats.getRange())
+                        // 1. [필터링] 사거리 내에 있고, 아직 살아있으며, 이번 턴에 죽지 않을 적들을 찾음
+                        List<SimUnit> validTargets = units.stream()
+                            .filter(u -> !u.uid.equals(attacker.uid) && u.hp > 0) // 적군이고 생존함
+                            .filter(u -> (u.hp - tickDamageAccumulator.getOrDefault(u, 0)) > 0) // 이번 턴에 안 죽을 놈
+                            .filter(u -> getDistance(attacker.x, attacker.y, u.x, u.y) <= attacker.stats.getRange()) // 사거리 내
                             .collect(Collectors.toList());
-
-                        if (!possibleTargets.isEmpty()) {
-                            attacker.currentTarget = possibleTargets.get(new Random().nextInt(possibleTargets.size()));
+                
+                        if (!validTargets.isEmpty()) {
+                            // 2. [거리 계산] 후보들 중 '최소 거리'가 몇인지 찾음
+                            int minDist = validTargets.stream()
+                                .mapToInt(u -> getDistance(attacker.x, attacker.y, u.x, u.y))
+                                .min()
+                                .getAsInt();
+                
+                            // 3. [최종 후보] 최소 거리와 똑같은 거리에 있는 적들만 추려냄
+                            List<SimUnit> closestTargets = validTargets.stream()
+                                .filter(u -> getDistance(attacker.x, attacker.y, u.x, u.y) == minDist)
+                                .collect(Collectors.toList());
+                
+                            // 4. [랜덤 선택] 가장 가까운 적들 중에서 무작위로 하나 선택
+                            attacker.currentTarget = closestTargets.get(new Random().nextInt(closestTargets.size()));
                         } else {
                             attacker.currentTarget = null;
                         }
