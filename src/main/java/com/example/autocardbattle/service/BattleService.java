@@ -31,6 +31,9 @@ public class BattleService {
         public Set<String> readyUsers = new HashSet<>();
         public int turn = 1;
         public Map<String, Integer> playerHps = new HashMap<>();
+        
+        // ✅ [추가] 이번 턴에 유저가 몇 번 행동했는지 체크 (합치기도 행동으로 인정)
+        public Map<String, Integer> turnActionCounts = new HashMap<>();
     }
 
     private static class SimulationResult {
@@ -155,31 +158,44 @@ public class BattleService {
     };
 
     // 메인 로직 처리
+    // ✅ [핵심 변경] 로직 처리
     public BattleMessage processBattle(String roomId, BattleMessage msg) {
         GameState state = games.computeIfAbsent(roomId, k -> new GameState());
 
         synchronized (state) {
-            // 턴 검증: 이전 라운드 메시지 차단
-            if (msg.getTurn() != state.turn) {
-                return null;
-            }
+            if (msg.getTurn() != state.turn) return null;
 
-            if ("PLACE".equals(msg.getType())) {
+            // PLACE 또는 MERGE 모두 처리
+            if ("PLACE".equals(msg.getType()) || "MERGE".equals(msg.getType())) {
                 List<BattleMessage> userPlacements = state.placements.computeIfAbsent(msg.getSender(), k -> new ArrayList<>());
-                boolean alreadyExists = userPlacements.stream()
-                        .anyMatch(p -> p.getX() == msg.getX() && p.getY() == msg.getY());
 
-                if (!alreadyExists) {
-                    userPlacements.add(msg);
-                    if (userPlacements.size() >= state.turn * 3) {
-                        state.readyUsers.add(msg.getSender());
-                    } else {
-                        List<String> nextHand = generateRandomHand(msg.getSender());
-                        BattleMessage refillMsg = new BattleMessage();
-                        refillMsg.setType("DICE_REFILL");
-                        refillMsg.setNextHand(nextHand);
-                        messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), refillMsg);
+                if ("MERGE".equals(msg.getType())) {
+                    // 합치기: 기존 유닛을 찾아 레벨 업데이트
+                    userPlacements.stream()
+                        .filter(p -> p.getX() == msg.getX() && p.getY() == msg.getY())
+                        .findFirst()
+                        .ifPresent(p -> p.setLevel(msg.getLevel()));
+                } else {
+                    // 배치: 중복 없으면 추가
+                    boolean exists = userPlacements.stream().anyMatch(p -> p.getX() == msg.getX() && p.getY() == msg.getY());
+                    if (!exists) {
+                        userPlacements.add(msg);
                     }
+                }
+
+                // ✅ 행동 횟수 카운트 (배치된 유닛 수가 아니라, 유저가 카드를 낸 횟수를 기준으로 함)
+                int currentActions = state.turnActionCounts.merge(msg.getSender(), 1, Integer::sum);
+
+                // 3번 행동했으면 준비 완료 (합치기도 포함됨!)
+                if (currentActions >= 3) {
+                    state.readyUsers.add(msg.getSender());
+                } else {
+                    // 아직 덜 냈으면 리필
+                    List<String> nextHand = generateRandomHand(msg.getSender());
+                    BattleMessage refillMsg = new BattleMessage();
+                    refillMsg.setType("DICE_REFILL");
+                    refillMsg.setNextHand(nextHand);
+                    messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + msg.getSender(), refillMsg);
                 }
             }
 
@@ -197,7 +213,7 @@ public class BattleService {
         }
         return null;
     }
-
+    
     private void processBattleResult(GameState state, String roomId) {
         List<BattleMessage> allPlacements = new ArrayList<>();
         state.placements.values().forEach(allPlacements::addAll);
@@ -263,6 +279,7 @@ public class BattleService {
             BattleController.removeRoomData(roomId);
         } else {
             state.readyUsers.clear();
+            state.turnActionCounts.clear();
             state.turn++;
         }
     }
@@ -334,7 +351,7 @@ public class BattleService {
                         }
                         
                         // 다음 공격 시간 예약
-                        attacker.nextAttackTime += 1000.0 / attacker.stats.getAps();
+                        attacker.nextAttackTime += 1000.0 / attacker.aps();
                     }
                 }
             }
