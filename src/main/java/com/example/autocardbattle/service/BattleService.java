@@ -38,8 +38,8 @@ public class BattleService {
             existingTask.cancel(false);
         }
 
-        // 총 대기 시간 = 기본 62초 + 애니메이션 시간
-        long totalDelay = 62000 + extraDelayMs;
+        // 총 대기 시간 = 기본 60초 + 애니메이션 시간
+        long totalDelay = 60000 + extraDelayMs;
 
         ScheduledFuture<?> task = scheduler.schedule(() -> {
             GameState state = games.get(roomId);
