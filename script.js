@@ -956,45 +956,46 @@ function updateTimerUI() {
 function renderFullMap(placements, isBattleMode) {
     if (!placements) return;
 
-    // 1. 기존 유닛 초기화
     document.querySelectorAll('.dice-unit').forEach(el => el.remove());
     document.querySelectorAll('.hp-bar-container').forEach(el => el.remove());
 
     placements.forEach(p => {
         const tile = document.getElementById(`tile-${p.x}-${p.y}`);
         if (tile) {
-            // 초기화
             tile.innerText = "";
-            // ✅ 현재 유저의 ID와 비교하여 내 유닛인지 상대 유닛인지 판별합니다.
             const isMine = p.sender === currentUser.firebaseUid;
             const ownershipClass = isMine ? 'mine' : 'enemy';
 
             const unitDiv = document.createElement('div');
-            // ✅ ownershipClass(mine 또는 enemy)를 클래스에 추가합니다.
             unitDiv.className = `dice-unit ${p.diceType} ${ownershipClass} new-spawn`;
-            unitDiv.innerHTML = `<span class="unit-icon">${getDiceEmoji(p.diceType)}</span>`;
+
+            // ✅ [추가] 별(성급) 배지 표시 추가
+            const badge = document.createElement('div');
+            badge.className = 'dice-level-badge';
+            badge.innerText = `★${p.level || 1}`;
+            unitDiv.appendChild(badge);
+
+            unitDiv.innerHTML += `<span class="unit-icon">${getDiceEmoji(p.diceType)}</span>`;
             tile.appendChild(unitDiv);
             tile.classList.add('placed-dice');
 
-            // [핵심 수정] 체력바 설정: 실제 DB 데이터(allDice) 활용
             if (isBattleMode) {
-                // 해당 주사위 타입의 실제 스탯 찾기
                 const diceInfo = allDice.find(d => d.diceType === p.diceType);
-                const realHp = diceInfo.hp;
+                if (diceInfo) {
+                    // ✅ [수정] 정의되지 않은 level 대신 p.level을, baseHp 대신 diceInfo.hp를 사용합니다.
+                    const currentLevel = p.level || 1;
+                    const n = currentLevel - 1;
+                    const scaledHp = Math.floor(diceInfo.hp * (1 + 0.7 * n));
 
-                // n = level - 1
-                // 공식: Base * (1 + 0.7 * n)
-                const n = level - 1;
-                const scaledHp = Math.floor(baseHp * (1 + 0.7 * n));
-
-                if (!tile.querySelector('.hp-bar-container')) {
-                    tile.setAttribute('data-hp', scaledHp);
-                    tile.setAttribute('data-max-hp', scaledHp);
-                    
-                    const bar = document.createElement('div');
-                    bar.className = 'hp-bar-container';
-                    bar.innerHTML = '<div class="hp-bar-fill"></div>';
-                    tile.appendChild(bar);
+                    if (!tile.querySelector('.hp-bar-container')) {
+                        tile.setAttribute('data-hp', scaledHp);
+                        tile.setAttribute('data-max-hp', scaledHp);
+                        
+                        const bar = document.createElement('div');
+                        bar.className = 'hp-bar-container';
+                        bar.innerHTML = '<div class="hp-bar-fill"></div>';
+                        tile.appendChild(bar);
+                    }
                 }
             }
         }
