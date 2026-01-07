@@ -42,23 +42,44 @@ public class BattleService {
             this.survivorCounts = survivorCounts;
         }
     }
-
+    
+    // ✅ [수정] 시뮬레이션 유닛 클래스: 레벨별 스탯 계산 로직 추가
     public static class SimUnit {
         String uid; int x, y; String type; int hp; int maxHp; 
-        double nextAttackTime; // 정밀한 계산을 위해 double 유지
-        DiceEntity stats;
-        SimUnit currentTarget; // ✅ [추가] 현재 추적 중인 타겟
-        
+        double nextAttackTime;
+        DiceEntity stats;     // 기본 스탯 정보 (참조용)
+        SimUnit currentTarget;
+
+        // ✅ [추가] 레벨 보정이 적용된 실제 전투 스탯
+        int damage; 
+        double aps; 
+
         SimUnit(BattleMessage p, DiceEntity diceStats) {
             this.uid = p.getSender();
             this.x = p.getX();
             this.y = p.getY();
             this.type = p.getDiceType();
             this.stats = diceStats;
-            this.hp = diceStats.getHp();
-            this.maxHp = diceStats.getHp();
+
+            // 1. 합친 횟수(n) 계산: 레벨이 0이면 1로 간주
+            int level = p.getLevel() > 0 ? p.getLevel() : 1;
+            int n = level - 1; 
+
+            // 2. 체력(HP) 계산: 기본 * (1 + 0.7 * n)
+            double hpMultiplier = 1.0 + (0.7 * n);
+            this.hp = (int) (diceStats.getHp() * hpMultiplier);
+            this.maxHp = this.hp;
+
+            // 3. 공격력(Damage) 계산: 기본 * (1 + 0.7 * n)
+            double dmgMultiplier = 1.0 + (0.7 * n);
+            this.damage = (int) (diceStats.getDamage() * dmgMultiplier);
+
+            // 4. 공격속도(APS) 계산: 기본 * (1 + 0.2 * n)
+            double apsMultiplier = 1.0 + (0.2 * n);
+            this.aps = diceStats.getAps() * apsMultiplier;
             
-            double attackCycle = 1000.0 / this.stats.getAps();
+            // 공격 주기 설정 (1초 = 1000ms)
+            double attackCycle = 1000.0 / this.aps;
             this.nextAttackTime = attackCycle;
             this.currentTarget = null;
         }
@@ -74,7 +95,7 @@ public class BattleService {
     public void initStrategies() {
         // 1. 🔥 FIRE
         abilityHandlers.put("FIRE", (attacker, target, allUnits, logs, time, damageQueue) -> {
-            int dmg = attacker.stats.getDamage();
+            int dmg = attacker.damage();
             // target.hp -= dmg; 대신 damageQueue에 추가
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "FIRE", time));
@@ -92,7 +113,7 @@ public class BattleService {
         // 2. 🎯 SNIPER
         abilityHandlers.put("SNIPER", (attacker, target, allUnits, logs, time, damageQueue) -> {
             int dist = getDistance(attacker.x, attacker.y, target.x, target.y);
-            int finalDmg = attacker.stats.getDamage() + (dist * attacker.stats.getDamage() * 3 / 10);
+            int finalDmg = attacker.damage() + (dist * attacker.damage() * 3 / 10);
             
             damageQueue.merge(target, finalDmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, finalDmg, "SNIPER", time));
@@ -100,7 +121,7 @@ public class BattleService {
 
         // 3. ⚡ ELECTRIC
         abilityHandlers.put("ELECTRIC", (attacker, target, allUnits, logs, time, damageQueue) -> {
-            int dmg = attacker.stats.getDamage();
+            int dmg = attacker.damage();
             int chaindmg = dmg*5/7;
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "ELECTRIC", time));
@@ -118,7 +139,7 @@ public class BattleService {
 
         // 4. ⚔️ NORMAL
         AbilityHandler normalHandler = (attacker, target, allUnits, logs, time, damageQueue) -> {
-            int dmg = attacker.stats.getDamage();
+            int dmg = attacker.damage();
             damageQueue.merge(target, dmg, Integer::sum);
             logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "NORMAL", time));
         };
@@ -128,7 +149,7 @@ public class BattleService {
     }
 
     private final AbilityHandler defaultHandler = (attacker, target, allUnits, logs, time, damageQueue) -> {
-        int dmg = attacker.stats.getDamage();
+        int dmg = attacker.damage();
         damageQueue.merge(target, dmg, Integer::sum);
         logs.add(new CombatLogEntry(attacker.x, attacker.y, target.x, target.y, dmg, "NORMAL", time));
     };
