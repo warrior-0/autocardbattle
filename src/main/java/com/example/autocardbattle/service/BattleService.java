@@ -119,8 +119,10 @@ public class BattleService {
 
             // 4. 공격속도(APS) 계산: 기본 * (1 + 0.2 * n)
             double apsMultiplier = 1.0 + (0.2 * n);
-            this.aps = diceStats.getAps() * apsMultiplier;
-            
+            // ✅ [수정 후] baseAps에 먼저 저장하고, 이를 aps에 대입
+            this.baseAps = diceStats.getAps() * apsMultiplier; 
+            this.aps = this.baseAps;
+                    
             // 공격 주기 설정 (1초 = 1000ms)
             double attackCycle = 1000.0 / this.aps;
             this.nextAttackTime = attackCycle;
