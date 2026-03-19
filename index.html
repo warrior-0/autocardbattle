@@ -32,7 +32,7 @@
                 <p id="user-status-text">전투 준비를 마쳐주세요.</p>
             </div>
             <div class="menu-container">
-                <div class="menu-card battle" onclick="navTo('battle')">
+                <div class="menu-card battle" onclick="showBattleModeSelection()">
                     <div class="icon">⚔️</div>
                     <h2>게임 플레이</h2>
                     <p>랜덤 전장으로 출격</p>
@@ -61,7 +61,7 @@
 
             <div id="battle-timer-container" style="text-align: center; margin-bottom: 10px; display: none;">
                 <span id="battle-timer" style="font-size: 24px; color: #e74c3c; font-weight: bold; background: #fff; padding: 5px 15px; border-radius: 20px; border: 2px solid #e74c3c;">
-                    남은 시간: 20초
+                    남은 시간: 60초
                 </span>
             </div>
 
@@ -113,6 +113,20 @@
                 <div class="spinner"></div>
                 <h2>⚔️ 상대를 찾는 중...</h2>
                 <button onclick="cancelMatch()" class="cancel-btn">매칭 취소</button>
+            </div>
+        </div>
+
+        <!-- New: Battle mode selection overlay -->
+        <div id="battle-mode-overlay" class="overlay" style="display:none;">
+            <div class="overlay-content">
+                <h2>누구와 대전하시겠습니까?</h2>
+                <div style="margin: 12px 0;">
+                    <button onclick="startMatch('HUMAN')" class="tool-btn">사람과 대전</button>
+                    <button onclick="startMatch('AI')" class="tool-btn">AI와 대전 (자동 선택)</button>
+                </div>
+                <div style="margin-top: 12px;">
+                    <button onclick="closeBattleModeOverlay()" class="cancel-btn">취소</button>
+                </div>
             </div>
         </div>
     </div>
