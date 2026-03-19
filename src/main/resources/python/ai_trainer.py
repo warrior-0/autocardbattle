@@ -40,5 +40,5 @@ class AITrainer:
 
 if __name__ == '__main__':
     trainer = AITrainer('Taxi-v3')
-    trainer.train(1000)
+    trainer.train(10000)
     trainer.save_model('q_table.npy')
