@@ -3,9 +3,6 @@ let mapData = [];
 let selectedType = 'MY_TILE';
 let currentUser = null;
 let isSignupMode = false; // 기본값은 로그인 모드
-// aiManager.js와의 연동을 위한 전역 상태
-let currentMatchMode = 'HUMAN';
-let currentAiType = null;
 
 // 1. 서버 주소 설정 (Render 서버 주소)
 const SERVER_URL = "https://autocardbattle.onrender.com";
