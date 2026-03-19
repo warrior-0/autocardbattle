@@ -3,6 +3,9 @@ let mapData = [];
 let selectedType = 'MY_TILE';
 let currentUser = null;
 let isSignupMode = false; // 기본값은 로그인 모드
+// aiManager.js와의 연동을 위한 전역 상태
+let currentMatchMode = 'HUMAN';
+let currentAiType = null;
 
 // 1. 서버 주소 설정 (Render 서버 주소)
 const SERVER_URL = "https://autocardbattle.onrender.com";
@@ -454,11 +457,23 @@ async function saveUserDeck() {
     }
 }
 
-// 전투 매칭 시작 (웹소켓 연결 후 방에 입장)
-let currentRoomId = null;
+// 사람과의 매칭
+async function startHumanMatch() {
+    closeBattleModeOverlay();
+    setMatchMode('HUMAN');
+    await startMatchInternal('HUMAN', null);
+}
 
-// startMatch 함수
-async function startMatch() {
+// AI와의 매칭 (자동 최고 승률 AI 선택)
+async function startAiMatch() {
+    closeBattleModeOverlay();
+    const bestAi = selectBestAi();
+    setMatchMode('AI', bestAi);
+    await startMatchInternal('AI', bestAi);
+}
+
+// 내부 매칭 로직
+async function startMatchInternal(mode, aiType) {
     if (!currentUser) return alert("로그인이 필요합니다.");
 
     if (!currentUser.selectedDeck || currentUser.selectedDeck.trim() === "" || currentUser.selectedDeck.split(',').filter(d => d).length === 0) {
@@ -470,53 +485,73 @@ async function startMatch() {
     if (overlay) overlay.style.display = 'flex';
 
     try {
-        const res = await fetch(`${SERVER_URL}/api/battle/match?userUid=${currentUser.firebaseUid}`, {
-            method: 'POST'
-        });
+        let url = `${SERVER_URL}/api/battle/match?userUid=${currentUser.firebaseUid}`;
+        if (mode === 'AI' && aiType) {
+            url += `&mode=AI&aiType=${encodeURIComponent(aiType)}`;
+        }
+
+        const res = await fetch(url, { method: 'POST' });
 
         if (res.status === 200) {
             const data = await res.json();
             currentRoomId = data.roomId;
-            
+
             if (overlay) overlay.style.display = 'none';
             if (matchTimer) clearTimeout(matchTimer);
 
-            // 1. UI 설정 (홈 버튼 숨기기 및 전장 제목 변경)
             const backBtn = document.querySelector('#editor-section .back-btn');
             if (backBtn) backBtn.style.display = 'none';
 
             document.getElementById('battle-header').style.display = 'flex';
             document.getElementById('battle-hand-section').style.display = 'block';
-            
+
             const editorSection = document.getElementById('editor-section');
             if (editorSection) {
                 editorSection.style.display = 'block';
                 const h2 = editorSection.querySelector('h2');
-                if (h2) h2.innerText = "⚔️ 실시간 전장";
+                if (h2) {
+                    if (mode === 'AI') {
+                        h2.innerText = `⚔️ 실시간 전장 (AI: ${aiType})`;
+                    } else {
+                        h2.innerText = "⚔️ 실시간 전장";
+                    }
+                }
                 document.querySelector('.palette').style.display = 'none';
                 document.querySelector('.actions').style.display = 'none';
             }
 
-            // 2. 웹소켓 연결 (서버에 READY를 보내고 GAME_START를 기다림)
             connectWebSocket();
 
-            // ✅ [수정] start API를 호출하되, 반환된 맵 데이터는 무시합니다.
-            await fetch(`${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`, {
+            let startUrl = `${SERVER_URL}/api/battle/start?userUid=${currentUser.firebaseUid}`;
+            if (mode === 'AI' && aiType) {
+                startUrl += `&aiType=${encodeURIComponent(aiType)}`;
+            }
+
+            await fetch(startUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(currentUser.selectedDeck.split(","))
             });
 
-            // ✅ 대기 알림: 아직 주사위가 나오지 않고 상대방을 기다리는 상태임을 표시합니다.
-            document.getElementById('battle-hand').innerHTML = "<h4>⚔️ 상대방을 기다리는 중...</h4>";
-            
+            document.getElementById('battle-hand').innerHTML = `<h4>⚔️ ${mode === 'AI' ? 'AI' : '상대방'}을 기다리는 중...</h4>`;
         } else if (res.status === 202) {
-            matchTimer = setTimeout(startMatch, 5000); 
+            matchTimer = setTimeout(() => startMatchInternal(mode, aiType), 5000);
         }
     } catch (err) {
         console.error("매칭 오류:", err);
         cancelMatch();
     }
+}
+
+// 모달 제어
+function showBattleModeSelection() {
+    const overlay = document.getElementById('battle-mode-overlay');
+    if (overlay) overlay.style.display = 'flex';
+}
+
+function closeBattleModeOverlay() {
+    const overlay = document.getElementById('battle-mode-overlay');
+    if (overlay) overlay.style.display = 'none';
 }
 
 // 매칭 취소 함수
@@ -799,18 +834,30 @@ function handleBattleMessage(data) {
             setTimeout(() => {
                 clearInterval(countdownInterval); // UI 타이머 멈춤
                 
-                // 체력 업데이트
                 myHp = data.remainingMyHp;
                 enemyHp = data.remainingEnemyHp;
                 updateHpUI('my-hp', myHp);
                 updateHpUI('enemy-hp', enemyHp);
-        
+
+                // AI 통계 업데이트 (aiManager.js 함수 사용)
+                if (getMatchMode() === 'AI' && getAiType()) {
+                    if (data.loserUid && data.loserUid !== "NONE") {
+                        const aiWon = (data.loserUid === currentUser.firebaseUid) ? true : false;
+                        updateAiStats(getAiType(), aiWon);
+                    } else if (data.loserUid === "NONE") {
+                        const stats = getAiStats();
+                        if (stats[getAiType()]) {
+                            stats[getAiType()].games += 1;
+                            saveAiStats(stats);
+                        }
+                    }
+                }
+
                 if (data.loserUid && data.loserUid !== "NONE") {
                     alert(data.loserUid === currentUser.firebaseUid ? "패배했습니다..." : "승리했습니다!");
                     navTo('home');
                 } else {
-                    // 전투 종료 2초 후 즉시 다음 라운드 시작
-                    startNextRound(data.nextHand, data.turn); 
+                    startNextRound(data.nextHand, data.turn);
                 }
             }, actualEndTime); 
             break;
