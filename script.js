@@ -317,9 +317,12 @@ function navTo(page) {
         }
         initMap(); 
     } 
-    else if (page === 'battle') {
-        startMatch(); 
+    else if (page === 'deck') {
+        document.getElementById('deck-section').style.display = 'block';
     } 
+    else if (page === 'home') {
+        document.getElementById('home-screen').style.display = 'block';
+    }
     else if (page === 'deck') {
         // ✅ 무한 루프 방지: 단순히 섹션만 보여줍니다.
         document.getElementById('deck-section').style.display = 'block';
