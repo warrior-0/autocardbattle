@@ -1,15 +1,31 @@
-import torch
-import torch.nn as nn
+from __future__ import annotations
 
-class GameAINetwork(nn.Module):
-    def __init__(self):
-        super(GameAINetwork, self).__init__()
-        self.fc1 = nn.Linear(10, 50)  # Example input size of 10
-        self.fc2 = nn.Linear(50, 20)
-        self.fc3 = nn.Linear(20, 1)   # Example output size of 1
-        
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+from dataclasses import dataclass, field
+from typing import Dict, List, Sequence, Tuple
+import random
+
+Action = Tuple[int, int]
+State = Tuple[int, ...]
+
+
+@dataclass
+class TabularQPolicy:
+    action_size: int
+    q_table: Dict[State, List[float]] = field(default_factory=dict)
+
+    def _ensure_state(self, state: State) -> List[float]:
+        if state not in self.q_table:
+            self.q_table[state] = [0.0] * self.action_size
+        return self.q_table[state]
+
+    def values(self, state: State) -> List[float]:
+        return self._ensure_state(state)
+
+    def best_action_index(self, state: State, valid_indices: Sequence[int]) -> int:
+        values = self._ensure_state(state)
+        return max(valid_indices, key=lambda idx: values[idx])
+
+    def choose_action_index(self, state: State, valid_indices: Sequence[int], epsilon: float, rng: random.Random) -> int:
+        if rng.random() < epsilon:
+            return rng.choice(list(valid_indices))
+        return self.best_action_index(state, valid_indices)
