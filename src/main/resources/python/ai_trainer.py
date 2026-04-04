@@ -77,7 +77,6 @@ class AITrainer:
         self.checkpoint_interval = 100
 
         self.best_model_path = os.path.join(os.path.dirname(self.model_path), "best_model.json")
-        self.current_model_path = os.path.join(os.path.dirname(self.model_path), "current_model.json")
         self.prev_model_paths = {
             100: os.path.join(os.path.dirname(self.model_path), "model_prev_100.json"),
             200: os.path.join(os.path.dirname(self.model_path), "model_prev_200.json"),
@@ -155,15 +154,17 @@ class AITrainer:
         except Exception as e:
             print(f"[AITrainer] Failed to save model: {e}", flush=True)
 
-    def save_network_model(self, network, path):
+    def save_network_model(self, network, path, trained_episodes=None):
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            if trained_episodes is None:
+                trained_episodes = int(self.total_trained_episodes)
             checkpoint = {
                 "algorithm": "PPO",
                 "policy_state_dict": network.state_dict(),
                 "state_dict": network.state_dict(),
                 "timestamp": time.time(),
-                "total_trained_episodes": int(self.total_trained_episodes)
+                "total_trained_episodes": int(trained_episodes)
             }
             with open(path, 'w') as f:
                 json.dump(checkpoint, f)
@@ -192,10 +193,9 @@ class AITrainer:
     def _bootstrap_fixed_policy_files(self):
         if not os.path.exists(self.best_model_path):
             self.save_network_model(self.network, self.best_model_path)
-        if not os.path.exists(self.current_model_path):
-            self.save_network_model(self.network, self.current_model_path)
         if not os.path.exists(self.prev_model_paths[100]):
-            self.save_network_model(self.network, self.prev_model_paths[100])
+            initial_prev_total = max(0, int(self.total_trained_episodes) - 100)
+            self.save_network_model(self.network, self.prev_model_paths[100], trained_episodes=initial_prev_total)
 
     def _refresh_fixed_networks_from_files(self):
         self.best_network = self._load_network_model(self.best_model_path, self.network)
@@ -334,7 +334,8 @@ class AITrainer:
 
     def _save_relative_history_models(self, previous_fixed_network):
         self._rotate_previous_model_files()
-        self.save_network_model(previous_fixed_network, self.prev_model_paths[100])
+        prev_100_total = max(0, int(self.total_trained_episodes) - 100)
+        self.save_network_model(previous_fixed_network, self.prev_model_paths[100], trained_episodes=prev_100_total)
 
     def evaluate_against_best(self, eval_games=1000):
         eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
@@ -546,7 +547,6 @@ class AITrainer:
             if total_episode % self.checkpoint_interval == 0:
                 self.total_trained_episodes = total_episode
                 previous_fixed_network = self._clone_network(self.network)
-                self.save_model(self.current_model_path)
                 self.save_network_model(self.best_network, self.best_model_path)
                 self._save_relative_history_models(previous_fixed_network)
                 self._refresh_fixed_networks_from_files()
@@ -608,7 +608,6 @@ class AITrainer:
                 model_dir = os.path.dirname(rel_model_path)
                 extra_rel_paths = [
                     os.path.join(model_dir, "best_model.json"),
-                    os.path.join(model_dir, "current_model.json"),
                     os.path.join(model_dir, "model_prev_100.json"),
                     os.path.join(model_dir, "model_prev_200.json"),
                     os.path.join(model_dir, "model_prev_300.json"),
