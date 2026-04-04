@@ -88,8 +88,7 @@ class AITrainer:
         self.best_network = self._clone_network(self.network)
         self.previous_network = self._clone_network(self.network)
         self.historical_networks = deque(maxlen=10)
-        self.snapshot_episodes = deque(maxlen=10)
-        self._append_snapshot(self._clone_network(self.network), self.total_trained_episodes)
+        self._append_snapshot(self._clone_network(self.network))
 
     def _clone_network(self, src_network):
         cloned = PPONetwork(
@@ -261,9 +260,8 @@ class AITrainer:
         )
         return update_stats
 
-    def _append_snapshot(self, snapshot_network, episode):
+    def _append_snapshot(self, snapshot_network):
         self.historical_networks.append(snapshot_network)
-        self.snapshot_episodes.append(int(episode))
         self.previous_network = self._clone_network(snapshot_network)
 
     def _choose_enemy_network(self):
@@ -309,22 +307,15 @@ class AITrainer:
         self.save_model(checkpoint_path)
         self._trim_old_checkpoints()
 
-    def _snapshot_network_by_episode(self, target_episode):
-        for idx in range(len(self.snapshot_episodes) - 1, -1, -1):
-            if self.snapshot_episodes[idx] == target_episode:
-                return self.historical_networks[idx]
-        return None
-
-    def _save_relative_history_models(self, current_episode):
+    def _save_relative_history_models(self, previous_fixed_network):
         base_dir = os.path.dirname(self.model_path)
-        for delta in [100, 200, 300, 400, 500]:
-            target_episode = current_episode - delta
+        fixed_models = [previous_fixed_network]
+        fixed_models.extend(list(self.historical_networks)[-2::-1])
+
+        for i, delta in enumerate([100, 200, 300, 400, 500]):
             target_path = os.path.join(base_dir, f"model_prev_{delta}.json")
-            if target_episode < 0:
-                continue
-            snapshot_network = self._snapshot_network_by_episode(target_episode)
-            if snapshot_network is not None:
-                self.save_network_model(snapshot_network, target_path)
+            if i < len(fixed_models):
+                self.save_network_model(fixed_models[i], target_path)
 
     def evaluate_against_best(self, eval_games=1000):
         eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
@@ -397,8 +388,7 @@ class AITrainer:
             self.best_network = self._clone_network(self.network)
             self.previous_network = self._clone_network(self.network)
             self.historical_networks = deque(maxlen=10)
-            self.snapshot_episodes = deque(maxlen=10)
-            self._append_snapshot(self._clone_network(self.network), self.total_trained_episodes)
+            self._append_snapshot(self._clone_network(self.network))
 
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
@@ -566,11 +556,12 @@ class AITrainer:
             if total_episode % self.checkpoint_interval == 0:
                 self.total_trained_episodes = total_episode
                 self._save_checkpoint(total_episode)
-                self._append_snapshot(self._clone_network(self.network), total_episode)
+                previous_fixed_network = self._clone_network(self.previous_network)
                 base_dir = os.path.dirname(self.model_path)
                 self.save_model(os.path.join(base_dir, "current_model.json"))
                 self.save_network_model(self.best_network, os.path.join(base_dir, "best_model.json"))
-                self._save_relative_history_models(total_episode)
+                self._save_relative_history_models(previous_fixed_network)
+                self._append_snapshot(self._clone_network(self.network))
             gc.collect()
 
         self.total_trained_episodes = run_start_total_episode + episodes
