@@ -18,7 +18,7 @@ public class RenderKeepAliveService {
         }
 
         try {
-            URL url = new URL(renderUrl + "/api/dice/list"); // 가벼운 API 엔드포인트 호출
+            URL url = new URL(renderUrl + "/api/dice/ping"); // keep-alive 전용 경량 API 호출 (limit 1)
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(5000);
