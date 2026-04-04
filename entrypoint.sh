@@ -18,22 +18,31 @@ if command -v git >/dev/null 2>&1; then
     git config --global pull.rebase true || true
     git config --global --add safe.directory /app || true
 
-    # /app 디렉토리를 Git 저장소로 초기화 (기존 .git이 없는 경우)
+    # /app 디렉토리를 Git 저장소로 초기화 및 동기화
     if [ ! -d ".git" ]; then
+        echo "[Git] Initializing new repository..."
         git init
         git remote add origin https://github.com/warrior-0/autocardbattle.git || true
-        
-        # GITHUB_TOKEN이 있으면 인증된 URL로 업데이트
-        if [ -n "$GITHUB_TOKEN" ]; then
-            git remote set-url origin "https://warrior-0:${GITHUB_TOKEN}@github.com/warrior-0/autocardbattle.git"
-        fi
-        
-        # 최신 메인 브랜치 정보를 가져오기 (학습 결과 푸시 시 충돌 방지)
-        git fetch origin main || true
-        # 현재 상태를 main 브랜치로 설정 (브랜치 이름 불일치 방지)
-        git checkout -b main || true
-        git branch --set-upstream-to=origin/main main || true
     fi
+
+    # GITHUB_TOKEN이 있으면 인증된 URL로 업데이트
+    if [ -n "$GITHUB_TOKEN" ]; then
+        git remote set-url origin "https://warrior-0:${GITHUB_TOKEN}@github.com/warrior-0/autocardbattle.git"
+    fi
+
+    # 원격 상태 강제 동기화 (untracked files 충돌 방지)
+    echo "[Git] Fetching and resetting to origin/main..."
+    git fetch origin main || true
+    
+    # 현재 브랜치가 main이 아니면 main으로 전환 시도
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [ "$CURRENT_BRANCH" != "main" ]; then
+        git checkout -B main || true
+    fi
+
+    # 원격 main 브랜치와 로컬 상태를 강제로 맞춤 (충돌 유발 파일 무시)
+    git reset --hard origin/main || true
+    git branch --set-upstream-to=origin/main main || true
 fi
 
 # 3) Java 애플리케이션 실행
