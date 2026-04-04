@@ -1,0 +1,470 @@
+/* ---------------------------------------------------------
+   1. 전체 배경 & 레이아웃 (하늘색 테마)
+--------------------------------------------------------- */
+body {
+    background-color: #e3f2fd; /* 아주 연한 하늘색 배경 */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+}
+
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat(8, 60px);
+    gap: 6px; /* 입체 효과를 위해 간격을 조금 넓힘 */
+    background-color: #bbdefb; /* 그리드 틈새 색상 (진한 하늘색) */
+    padding: 10px;
+    width: fit-content;
+    margin: 20px auto;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.tile {
+    width: 60px;
+    height: 60px;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 6px; /* 둥근 모서리 */
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+    overflow: visible !important;
+}
+
+/* ---------------------------------------------------------
+   2. 타일 디자인 (입체감 & 높이 차이)
+--------------------------------------------------------- */
+
+/* [내 타일] 밝은 하늘색 + 솟아오른 효과 */
+.tile.MY_TILE { 
+    background-color: #e1f5fe !important; 
+    border: 1px solid #81d4fa;
+    
+    /* ⬆️ 공중 부양 효과 (상대보다 높게) */
+    transform: translateY(-4px); 
+    /* 입체 그림자: 아래쪽에 두께감을 줌 */
+    box-shadow: 
+        0 4px 0px #4fc3f7,       /* 블록 두께 색상 */
+        0 8px 6px rgba(0,0,0,0.15); /* 바닥 그림자 */
+    z-index: 10;
+}
+
+/* [내 타일 - 마우스 올렸을 때] 더 튀어오름 */
+.tile.MY_TILE:hover {
+    transform: translateY(-6px);
+    box-shadow: 
+        0 6px 0px #4fc3f7,
+        0 12px 10px rgba(0,0,0,0.2);
+}
+
+/* [상대 타일] 약간 어두운 하늘색 + 바닥에 붙은 효과 */
+.tile.ENEMY_TILE { 
+    background-color: #81d4fa !important; 
+    border: 1px solid #4fc3f7;
+    
+    /* 바닥에 착 붙은 느낌 */
+    transform: translateY(0); 
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); /* 살짝 눌린 듯한 내부 그림자 */
+    opacity: 0.9;
+}
+
+/* 벽 (기존 유지) */
+.tile.WALL { 
+    background-color: #37474f; 
+    color: white; 
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+}
+
+/* 대칭 구역 */
+.symmetric-zone { 
+    opacity: 0.6; 
+    cursor: default; 
+    border: 2px dashed #90a4ae;
+}
+
+
+/* ---------------------------------------------------------
+   3. 유닛(주사위 토큰) 디자인
+   (기존 입체 디자인 유지하되 타일과 어울리게 미세 조정)
+--------------------------------------------------------- */
+.dice-unit {
+    width: 85%;
+    height: 85%;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3), inset 0 2px 3px rgba(255,255,255,0.6);
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    transition: transform 0.1s;
+    z-index: 20;
+}
+
+/* 내 유닛: 하얀색 테두리 */
+.dice-unit.mine {
+    border: 4px solid #ffffff !important; /* 선명한 하얀색 */
+    box-shadow: 0 4px 10px rgba(255, 255, 255, 0.3), /* 하얀 광채 살짝 추가 */
+                inset 0 2px 3px rgba(255,255,255,0.6);
+}
+
+/* 상대 유닛: 검정색 테두리 */
+.dice-unit.enemy {
+    border: 4px solid #000000 !important; /* 선명한 검정색 */
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5), /* 어두운 그림자 강조 */
+                inset 0 2px 3px rgba(255,255,255,0.2);
+}
+
+/* 속성별 유닛 색상 (그라데이션 유지) */
+.dice-unit.FIRE { background: linear-gradient(135deg, #ff512f, #dd2476); border-color: #ff9a9e; }
+.dice-unit.WIND { background: linear-gradient(135deg, #89f7fe, #66a6ff); border-color: #c2e9fb; }
+.dice-unit.ELECTRIC { background: linear-gradient(135deg, #f09819, #edde5d); border-color: #fce38a; }
+.dice-unit.SNIPER { background: linear-gradient(135deg, #11998e, #38ef7d); border-color: #a8ff78; }
+.dice-unit.SWORD { background: linear-gradient(135deg, #e0e0e0, #909fa5); border-color: #fff; }
+/* 방패 주사위: 은회색/청회색 테마 */
+.dice-unit.SHIELD { 
+    background: linear-gradient(135deg, #bdc3c7, #2c3e50); 
+    border-color: #7f8c8d; 
+}
+
+/* 물 주사위: 시원한 바다색 */
+.dice-unit.WATER { 
+    background: linear-gradient(135deg, #00d2ff, #3a7bd5); 
+    border-color: #00cec9; 
+}
+
+/* 쇠 주사위: 금속 질감 (어두운 회색) */
+.dice-unit.IRON { 
+    background: linear-gradient(135deg, #636e72, #2d3436); 
+    border-color: #b2bec3; 
+}
+
+.unit-icon {
+    font-size: 28px;
+    filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2));
+}
+
+/* ---------------------------------------------------------
+   4. UI 요소 (체력바, 투사체 등)
+--------------------------------------------------------- */
+.hp-bar-container {
+    position: absolute;
+    top: 0px;
+    left: 10%;
+    width: 80%;
+    height: 6px;
+    background: #263238;
+    border-radius: 3px;
+    border: 1px solid rgba(255,255,255,0.3);
+    z-index: 999 !important;
+    overflow: hidden;
+}
+.hp-bar-fill {
+    height: 100%;
+    background: #00e676;
+    width: 100%;
+    transition: width 0.2s ease-out;
+}
+
+.projectile {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background-color: #ffeb3b;
+    border-radius: 50%;
+    z-index: 1000;
+    box-shadow: 0 0 8px rgba(255, 235, 59, 0.8);
+    pointer-events: none;
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.tile.dead .dice-unit {
+    filter: grayscale(100%) brightness(60%);
+    transform: scale(0.9);
+}
+
+/* 1. 레벨(성급) 배지 디자인 */
+.dice-level-badge {
+    position: absolute;
+    bottom: -6px;
+    right: -6px;
+    background: #ffffff;
+    color: #f1c40f;       /* 황금색 글자 */
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 12px;
+    border: 2px solid #ffffff;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    z-index: 25;          /* 유닛보다 위에 표시 */
+    pointer-events: none; /* 클릭 방해 금지 */
+    
+    /* 텍스트 줄바꿈 방지 */
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 14px;
+}
+
+/* 상대방 유닛의 레벨 배지 테두리는 검은색으로 변경 */
+.dice-unit.enemy .dice-level-badge {
+    border-color: #000000; /* 검은색 테두리 */
+    background: #000000; /* 검은색 배경 */
+    box-shadow: 0 2px 5px rgba(255, 255, 255, 0.3); /* 그림자도 살짝 밝게 조정 (선택사항) */
+}
+
+/* 2. 합치기 대기 상태 (내가 선택한 주사위) */
+.dice-unit.merge-selected {
+    border-color: #f1c40f !important; /* 황금색 테두리 강제 적용 */
+    box-shadow: 
+        0 0 15px rgba(241, 196, 15, 0.8), 
+        inset 0 0 10px rgba(255, 255, 0, 0.3) !important;
+    transform: scale(1.1) translateY(-8px); /* 붕 떠오르는 느낌 */
+    z-index: 100; /* 가장 위로 */
+    animation: bounce-ready 1s infinite;
+}
+
+@keyframes bounce-ready {
+    0%, 100% { transform: scale(1.1) translateY(-8px); }
+    50% { transform: scale(1.1) translateY(-12px); }
+}
+
+/* 3. 합칠 수 있는 대상 (타겟 주사위) 강조 효과 */
+.dice-unit.merge-target {
+    cursor: crosshair; /* 조준 커서로 변경 */
+    border-color: #00e676 !important; /* 녹색 테두리 (가능 신호) */
+    box-shadow: 0 0 15px #00e676 !important;
+    animation: pulse-target 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-target {
+    0% { filter: brightness(1); transform: scale(1); }
+    50% { filter: brightness(1.2); transform: scale(1.05); }
+    100% { filter: brightness(1); transform: scale(1); }
+}
+
+/* 4. 합쳐질 때 이펙트 (반짝임) */
+@keyframes merge-flash {
+    0% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.3); filter: brightness(2); background: white; }
+    100% { transform: scale(1); filter: brightness(1); }
+}
+
+.dice-unit.merging {
+    animation: merge-flash 0.5s ease-out forwards;
+}
+
+/* ---------------------------------------------------------
+   5. 기타 메뉴 UI (기존과 동일하게 유지)
+--------------------------------------------------------- */
+.menu-container { display: flex; gap: 20px; justify-content: center; margin-top: 50px; }
+.menu-card { width: 200px; padding: 30px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); cursor: pointer; text-align: center; }
+.dice-grid { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; margin-bottom: 20px; }
+.dice-card { width: 150px; padding: 15px; border: 2px solid #ccc; border-radius: 10px; cursor: pointer; background: white; }
+.dice-card.selected { background-color: #e1f5fe; border-color: #29b6f6; transform: scale(1.05); }
+.battle-ui { background: rgba(255, 255, 255, 0.9); padding: 15px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+#battle-hand .dice-card { border: 3px solid #29b6f6; background: #e1f5fe; }
+.overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+.overlay-content { background: white; padding: 40px; border-radius: 10px; text-align: center; }
+.spinner { width: 50px; height: 50px; border: 5px solid #ccc; border-top-color: #29b6f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+@keyframes popIn { 0% { transform: scale(0); } 80% { transform: scale(1.1); } 100% { transform: scale(1); } }
+.dice-unit.new-spawn { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+/* 1. 인증 관련 버튼 (로그인/회원가입 하기) */
+#main-auth-btn {
+    width: 100%;
+    padding: 15px 20px; /* 크기를 더 크게 조절 */
+    font-size: 18px;    /* 글자 크기 확대 */
+    font-weight: bold;
+    color: white;
+    background: linear-gradient(135deg, #ff4757, #ff6b81); /* 선명한 빨간색 그라데이션 */
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4); /* 빨간색 광채 효과 */
+    transition: all 0.2s ease;
+    margin-top: 10px;
+}
+
+/* 2. 로그아웃 버튼 */
+.logout-btn {
+    display: block;
+    width: 200px;       /* 버튼 너비 확보 */
+    margin: 30px auto;  /* 중앙 정렬 및 여백 */
+    padding: 15px 25px; /* 크기를 더 크게 조절 */
+    font-size: 16px;
+    font-weight: bold;
+    color: white;
+    background: #e74c3c; /* 단색 빨간색 */
+    border: 2px solid #c0392b;
+    border-radius: 10px;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    transition: all 0.2s;
+}
+
+.logout-btn:hover {
+    background: #c0392b;
+    transform: scale(1.05); /* 마우스 올리면 살짝 커짐 */
+    box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+}
+
+/* 3. 회원가입 전환 링크 강조 (선택 사항) */
+#auth-switch-text a {
+    color: #ff4757;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+/* =========================================================
+   [모바일 전용 스타일] 화면 너비 768px 이하일 때 적용
+   - 그리드 자동 축소, 메뉴 세로 배치, 터치 최적화
+========================================================= */
+@media (max-width: 768px) {
+    
+    /* 1. 전체 레이아웃: 여백 줄이고 상단 정렬 */
+    body {
+        padding: 10px;
+        align-items: flex-start;
+        overflow-x: hidden; /* 가로 스크롤 방지 */
+    }
+
+    .game-section {
+        padding: 0;
+        margin-top: 20px;
+    }
+
+    /* 2. 전장(Grid) 리사이징: 화면 꽉 차게 자동 조절 */
+    .grid-container {
+        /* 고정 px 대신 화면 비율(fr) 사용 */
+        grid-template-columns: repeat(8, 1fr); 
+        width: 100%;       /* 부모 컨테이너 꽉 채움 */
+        max-width: 95vw;   /* 화면 너비 넘지 않게 */
+        gap: 3px;          /* 간격 좁힘 */
+        padding: 5px;
+    }
+
+    .tile {
+        width: auto;       /* 그리드 칸에 맞춰 자동 조절 */
+        height: auto;
+        aspect-ratio: 1/1; /* 정사각형 비율 강제 유지 */
+        border-radius: 4px;
+    }
+
+    /* 3. 유닛 및 아이콘 크기 최적화 */
+    .unit-icon {
+        font-size: 5vw; /* 화면 크기에 비례해서 이모지 크기 조절 */
+    }
+    
+    .dice-unit {
+        border-width: 1px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3); /* 그림자 약간 축소 */
+    }
+    
+    /* 입체 효과 높이 줄임 (모바일은 터치가 주력이므로) */
+    .tile.MY_TILE { transform: translateY(-2px); box-shadow: 0 2px 0px #4fc3f7; }
+    .tile.MY_TILE:hover { transform: translateY(-2px); } /* 호버 효과 제거/고정 */
+
+    /* 4. 메뉴 카드: 한 줄로 길게 배치 */
+    .menu-container {
+        flex-direction: column; /* 세로 정렬 */
+        align-items: center;
+        width: 100%;
+    }
+
+    .menu-card {
+        width: 90%; /* 화면 꽉 차게 */
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 20px;
+        text-align: left;
+    }
+    
+    .menu-card .icon {
+        font-size: 2rem; /* 아이콘 크기 조정 */
+        margin-bottom: 0;
+    }
+
+    /* 5. 전투 HUD (체력바, 타이머) */
+    .battle-hud {
+        padding: 5px;
+        flex-wrap: wrap; /* 공간 부족하면 줄바꿈 */
+        gap: 10px;
+        justify-content: center;
+    }
+    
+    .player-info {
+        width: 45%; /* 좌우 정보창 너비 배분 */
+        font-size: 0.8rem;
+    }
+    
+    .timer-display {
+        order: -1; /* 타이머를 맨 위로 올림 */
+        width: 100%;
+        text-align: center;
+        font-size: 1.2rem;
+        padding: 5px;
+        margin-bottom: 5px;
+    }
+    
+    /* 체력바 두께 조절 */
+    .hp-bar-big { height: 8px; }
+    .hp-bar-container { height: 4px; top: 0px; } /* 유닛 머리 위 체력바 */
+
+    /* 6. 덱 에디터 & 손패 카드 */
+    .dice-grid {
+        gap: 8px;
+    }
+
+    .dice-card {
+        width: 35%; /* 한 줄에 2개씩 배치 (반반) */
+        padding: 10px;
+        font-size: 0.8rem;
+    }
+    
+    .dice-icon { font-size: 1.5rem; }
+    
+    /* 전투 중 손패 영역 */
+    #battle-hand-section {
+        width: 100%;
+        overflow-x: auto; /* 카드가 많으면 가로 스크롤 */
+    }
+    
+    #battle-hand {
+        justify-content: flex-start; /* 왼쪽부터 정렬 */
+        padding-bottom: 10px;
+    }
+    
+    #battle-hand .dice-card {
+        min-width: 80px; /* 카드 최소 크기 보장 */
+        width: 80px;
+    }
+
+   .dice-unit.mine, .dice-unit.enemy {
+        border-width: 3px !important;
+    }
+   
+   .projectile {
+        width: 6px !important;  /* 기존 12px에서 6px로 축소 */
+        height: 6px !important;
+        box-shadow: 0 0 4px rgba(255, 235, 59, 0.8) !important; /* 그림자 효과도 작게 조정 */
+    }
+
+   .dice-level-badge {
+        font-size: 9px;
+        padding: 1px 4px;
+        bottom: -4px;
+        right: -4px;
+    }
+}
