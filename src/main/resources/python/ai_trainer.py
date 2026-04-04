@@ -9,6 +9,7 @@ from collections import deque
 from ai_models import PPONetwork
 from game_simulator import GameSimulator, PASS_ACTION, MAX_ACTIONS_PER_TURN
 
+# numba 사용 여부 체크
 _numba_spec = importlib.util.find_spec("numba")
 if _numba_spec is not None:
     njit = importlib.import_module("numba").njit
@@ -17,7 +18,6 @@ else:
         def _decorator(func):
             return func
         return _decorator
-
 
 @njit(cache=True)
 def _build_returns_advantages_numba(rewards, values, dones, gamma, gae_lambda):
@@ -35,7 +35,6 @@ def _build_returns_advantages_numba(rewards, values, dones, gamma, gae_lambda):
         next_value = values[t]
     return returns, advantages
 
-
 class AITrainer:
     def __init__(self, model_path, state_size=333, action_size=129, learning_rate=0.0003):
         self.model_path = model_path
@@ -43,6 +42,7 @@ class AITrainer:
         self.action_size = action_size
         self.base_lr = learning_rate
 
+        # PPO 네트워크 초기화
         self.network = PPONetwork(
             state_size,
             action_size,
@@ -52,13 +52,13 @@ class AITrainer:
             value_coef=0.5,
             target_kl=0.02,
         )
-        self.base_lr = 3e-4
         self.min_lr = 1e-5
         self.base_entropy_coef = 0.01
         self.min_entropy_coef = 0.001
         self.entropy_decay = 0.9997
         self.training_step = 0
 
+        # 평가 관련
         self.eval_batch = 1000
         self.eval_total = 1000
         self.eval_progress_log_interval = 10
@@ -66,30 +66,34 @@ class AITrainer:
         self.eval_interval = 100
         self.eval_games = 0
         self.eval_wins = 0
+        self.best_eval_winrate = -1.0
 
+        # 적 네트워크 샘플링
         self.best_opponent_ratio = 0.2
         self.previous_opponent_ratio = 0.5
         self.random_old_opponent_ratio = 0.3
 
-        self.best_eval_winrate = -1.0
-
+        # 체크포인트
         self.push_interval = 10
         self.checkpoint_interval = 100
         self.max_checkpoints = 5
 
         self.total_trained_episodes = 0
 
+        # PPO 하이퍼파라미터
         self.gamma = 0.98
         self.gae_lambda = 0.95
         self.ppo_epochs = 4
         self.minibatch_size = 64
 
+        # 모델 로드
         self.load_model(self.model_path)
         self.best_network = self._clone_network(self.network)
         self.previous_network = self._clone_network(self.network)
         self.historical_networks = deque(maxlen=10)
         self._append_snapshot(self._clone_network(self.network))
 
+    # --- 네트워크 복제 및 모델 입출력 ---
     def _clone_network(self, src_network):
         cloned = PPONetwork(
             self.state_size,
@@ -107,7 +111,6 @@ class AITrainer:
             try:
                 with open(path, 'r') as f:
                     checkpoint = json.load(f)
-
                 if isinstance(checkpoint, dict):
                     if "policy_state_dict" in checkpoint:
                         self.network.load_state_dict(checkpoint["policy_state_dict"], strict=True)
@@ -116,12 +119,7 @@ class AITrainer:
                     elif "net.0.weight" in checkpoint:
                         self.network.load_state_dict(checkpoint, strict=True)
 
-                    if hasattr(self.network, 'w3'):
-                        self.action_size = self.network.w3.shape[0]
-
-                    loaded_total = checkpoint.get("total_trained_episodes")
-                    if loaded_total is None:
-                        loaded_total = checkpoint.get("training_episodes")
+                    loaded_total = checkpoint.get("total_trained_episodes") or checkpoint.get("training_episodes")
                     if isinstance(loaded_total, (int, float)):
                         self.total_trained_episodes = int(loaded_total)
 
@@ -161,6 +159,7 @@ class AITrainer:
         except Exception as e:
             print(f"[AITrainer] Failed to save network snapshot: {e}", flush=True)
 
+    # --- 행동 선택 ---
     def _action_to_index(self, action):
         if action == PASS_ACTION:
             return 0
@@ -207,6 +206,7 @@ class AITrainer:
             np.float32(self.gae_lambda),
         )
 
+    # --- 에피소드 학습 ---
     def train_on_episode(self, current_episode, total_episodes, trajectories):
         if not trajectories:
             return {"loss": 0.0, "approx_kl": 0.0, "early_stop": False}
@@ -217,12 +217,7 @@ class AITrainer:
         decayed_entropy = self.base_entropy_coef * (self.entropy_decay ** step)
         self.network.entropy_coef = max(self.min_entropy_coef, decayed_entropy)
 
-        states = []
-        actions = []
-        old_log_probs = []
-        action_masks = []
-        returns = []
-        advantages = []
+        states, actions, old_log_probs, action_masks, returns, advantages = [], [], [], [], [], []
 
         for traj in trajectories:
             r, a = self._build_returns_advantages(
@@ -244,22 +239,17 @@ class AITrainer:
         returns = np.array(returns, dtype=np.float32)
         advantages = np.array(advantages, dtype=np.float32)
 
+        # Advantage 정규화
         adv_mean = np.mean(advantages)
         adv_std = np.std(advantages) + 1e-8
         advantages = (advantages - adv_mean) / adv_std
 
-        update_stats = self.network.update_ppo(
-            states,
-            actions,
-            old_log_probs,
-            action_masks,
-            returns,
-            advantages,
-            epochs=self.ppo_epochs,
-            minibatch_size=self.minibatch_size,
+        return self.network.update_ppo(
+            states, actions, old_log_probs, action_masks, returns, advantages,
+            epochs=self.ppo_epochs, minibatch_size=self.minibatch_size
         )
-        return update_stats
 
+    # --- 스냅샷 & 체크포인트 ---
     def _append_snapshot(self, snapshot_network):
         self.historical_networks.append(snapshot_network)
         self.previous_network = self._clone_network(snapshot_network)
@@ -270,13 +260,9 @@ class AITrainer:
             return self.best_network
         if r < (self.best_opponent_ratio + self.previous_opponent_ratio):
             return self.previous_network
-
         old_candidates = list(self.historical_networks)[:-1]
         if old_candidates:
             return old_candidates[np.random.randint(len(old_candidates))]
-
-        if self.previous_network is not None:
-            return self.previous_network
         return self.best_network
 
     def _trim_old_checkpoints(self):
@@ -285,7 +271,6 @@ class AITrainer:
         checkpoint_suffix = ".json"
         if not os.path.isdir(checkpoint_dir):
             return
-
         checkpoints = []
         for name in os.listdir(checkpoint_dir):
             if name.startswith(checkpoint_prefix) and name.endswith(checkpoint_suffix):
@@ -294,7 +279,6 @@ class AITrainer:
                     checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
                 except:
                     pass
-
         checkpoints.sort()
         while len(checkpoints) > self.max_checkpoints:
             ep, path = checkpoints.pop(0)
@@ -309,45 +293,28 @@ class AITrainer:
 
     def _save_relative_history_models(self, previous_fixed_network):
         base_dir = os.path.dirname(self.model_path)
-        fixed_models = [previous_fixed_network]
-        fixed_models.extend(list(self.historical_networks)[-2::-1])
-
+        fixed_models = [previous_fixed_network] + list(self.historical_networks)[-2::-1]
         for i, delta in enumerate([100, 200, 300, 400, 500]):
             target_path = os.path.join(base_dir, f"model_prev_{delta}.json")
             if i < len(fixed_models):
                 self.save_network_model(fixed_models[i], target_path)
 
+    # --- 평가 ---
     def evaluate_against_best(self, eval_games=1000):
         eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
-        wins = 0
-        losses = 0
+        wins, losses = 0, 0
         for game_index in range(1, eval_games + 1):
             p_state, e_state = eval_env.reset()
-            done = False
-            info = {}
+            done, info = False, {}
             while not done:
                 p_valid = eval_env.get_valid_actions_for("player")
-                p_action, _, _, _, _ = self.select_action(
-                    p_state,
-                    p_valid,
-                    mode='play',
-                    network_to_use=self.network,
-                )
+                p_action, _, _, _, _ = self.select_action(p_state, p_valid, mode='play', network_to_use=self.network)
                 e_valid = eval_env.get_valid_actions_for("enemy")
-                e_action, _, _, _, _ = self.select_action(
-                    e_state,
-                    e_valid,
-                    mode='play',
-                    network_to_use=self.best_network,
-                )
+                e_action, _, _, _, _ = self.select_action(e_state, e_valid, mode='play', network_to_use=self.best_network)
                 p_state, e_state, _, _, done, info = eval_env.step_self_play(p_action, e_action)
-
             winner = info.get("winner")
-            if winner == 1:
-                wins += 1
-            elif winner == -1:
-                losses += 1
-
+            if winner == 1: wins += 1
+            elif winner == -1: losses += 1
             if game_index % self.eval_progress_log_interval == 0 or game_index == eval_games:
                 print(json.dumps({
                     "eval_progress": {
@@ -356,17 +323,18 @@ class AITrainer:
                         "wins": wins,
                         "losses": losses,
                         "draws": game_index - wins - losses,
-                        "win_rate": round(wins / max(1, (wins + losses)), 4) if (wins + losses) > 0 else 0.0
+                        "win_rate": round(wins / max(1, wins + losses), 4) if (wins + losses) > 0 else 0.0
                     }
                 }), flush=True)
-
         return wins, losses
 
+    # --- 학습 루프 ---
     def train(self, episodes=50, log_interval=10):
         start_time = time.time()
         map_data = os.getenv("AUTOCARDBATTLE_MAP_DATA")
         env = GameSimulator(dice_catalog=None, map_data=map_data)
 
+        # 상태 크기 체크
         sample_state, _ = env.reset()
         current_state_size = len(sample_state)
         if current_state_size != self.state_size:
@@ -381,31 +349,25 @@ class AITrainer:
                 value_coef=0.5,
                 target_kl=0.02,
             )
-            try:
-                self.load_model(self.model_path)
-            except Exception as e:
-                print(f"[AITrainer] Could not load model with new state_size: {e}. Starting fresh.", flush=True)
+            self.load_model(self.model_path)
             self.best_network = self._clone_network(self.network)
             self.previous_network = self._clone_network(self.network)
             self.historical_networks = deque(maxlen=10)
             self._append_snapshot(self._clone_network(self.network))
 
+        # 루프 변수 초기화
+        total_wins = total_losses = total_draws = 0
+        total_loss = 0.0
+        loss_count = 0
+        reward_window_sum = 0.0
+        run_start_total_episode = self.total_trained_episodes
+
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
 
-        total_wins = 0
-        total_losses = 0
-        total_draws = 0
-        total_loss = 0.0
-        loss_count = 0
-
-        reward_window_sum = 0.0
-        run_start_total_episode = self.total_trained_episodes
         for ep in range(1, episodes + 1):
             p_state, e_state = env.reset()
-            done = False
-            ep_reward = 0.0
-
+            done, ep_reward = False, 0.0
             p_traj = {"states": [], "actions": [], "log_probs": [], "action_masks": [], "rewards": [], "dones": [], "values": []}
             p_round_action_indices = []
 
@@ -413,12 +375,9 @@ class AITrainer:
                 round_before = env.current_round
                 p_valid = env.get_valid_actions_for("player")
                 p_action, p_idx, p_logp, p_val, p_mask = self.select_action(p_state, p_valid, mode='train', network_to_use=self.network)
-
                 e_valid = env.get_valid_actions_for("enemy")
                 enemy_network = self._choose_enemy_network()
-                e_action, e_idx, e_logp, e_val, e_mask = self.select_action(
-                    e_state, e_valid, mode='play', network_to_use=enemy_network
-                )
+                e_action, e_idx, e_logp, e_val, e_mask = self.select_action(e_state, e_valid, mode='play', network_to_use=enemy_network)
 
                 next_p_state, next_e_state, p_reward, e_reward, done, info = env.step_self_play(p_action, e_action)
                 round_after = info.get("current_round", round_before)
@@ -430,6 +389,7 @@ class AITrainer:
                     round_reward_player = 1.0 if rr == 1 else (-1.0 if rr == -1 else -0.1)
                     p_immediate_reward -= round_reward_player
 
+                # trajectory 기록
                 p_traj["states"].append(p_state)
                 p_traj["actions"].append(p_idx)
                 p_traj["log_probs"].append(p_logp)
@@ -438,35 +398,31 @@ class AITrainer:
                 p_traj["dones"].append(1.0 if round_resolved else 0.0)
                 p_traj["values"].append(float(p_val))
 
-                step_index = len(p_traj["rewards"]) - 1
                 if p_action != PASS_ACTION:
-                    p_round_action_indices.append(step_index)
+                    p_round_action_indices.append(len(p_traj["rewards"]) - 1)
 
+                # 라운드 보상 분배
                 if round_resolved:
                     rr = info.get("round_result", 0)
                     round_reward_player = 1.0 if rr == 1 else (-1.0 if rr == -1 else -0.1)
-
                     p_slot_reward = round_reward_player / float(MAX_ACTIONS_PER_TURN)
-
                     for idx in p_round_action_indices[:MAX_ACTIONS_PER_TURN]:
                         p_traj["rewards"][idx] += p_slot_reward
-
                     p_round_action_indices = []
 
                 p_state = next_p_state
                 e_state = next_e_state
                 ep_reward += p_reward
 
+            # 학습
             update_stats = self.train_on_episode(ep, episodes, [p_traj])
             reward_window_sum += ep_reward
 
+            # 승/패 기록
             winner = info.get("winner")
-            if winner == 1:
-                total_wins += 1
-            elif winner == -1:
-                total_losses += 1
-            else:
-                total_draws += 1
+            if winner == 1: total_wins += 1
+            elif winner == -1: total_losses += 1
+            else: total_draws += 1
 
             if update_stats["loss"] > 0:
                 total_loss += update_stats["loss"]
@@ -474,15 +430,16 @@ class AITrainer:
 
             total_episode = run_start_total_episode + ep
             promoted = False
-            batch_promoted = False
-            gate_win_rate = 0.0
             eval_triggered = False
+            gate_win_rate = 0.0
 
+            # 모델 저장
             if total_episode % self.push_interval == 0:
                 self.total_trained_episodes = total_episode
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, total_episode)
 
+            # 체크포인트 저장
             if total_episode % self.checkpoint_interval == 0:
                 self.total_trained_episodes = total_episode
                 self._save_checkpoint(total_episode)
@@ -493,12 +450,13 @@ class AITrainer:
                 self._save_relative_history_models(previous_fixed_network)
                 self._append_snapshot(self._clone_network(self.network))
 
+            # 평가
             if ep % self.eval_interval == 0:
                 eval_triggered = True
                 wins, losses = self.evaluate_against_best(self.eval_batch)
                 self.eval_games += self.eval_batch
                 self.eval_wins += wins
-                batch_win_rate = wins / max(1, (wins + losses))
+                batch_win_rate = wins / max(1, wins + losses)
                 print(json.dumps({
                     "eval_batch_result": {
                         "batch_games": self.eval_batch,
@@ -506,7 +464,6 @@ class AITrainer:
                         "batch_losses": losses,
                         "batch_draws": self.eval_batch - wins - losses,
                         "batch_win_rate": round(batch_win_rate, 4),
-                        "batch_previous_model_promoted": batch_promoted,
                         "accum_games": self.eval_games,
                         "accum_wins": self.eval_wins,
                         "target_games": self.eval_total
@@ -523,12 +480,8 @@ class AITrainer:
                     self.eval_games = 0
                     self.eval_wins = 0
 
+            # 로그 출력
             if ep % log_interval == 0:
-                pending_gate_games = self.eval_games
-                pending_gate_win_rate = (self.eval_wins / pending_gate_games) if pending_gate_games > 0 else 0.0
-                if gate_win_rate == 0.0:
-                    gate_win_rate = pending_gate_win_rate
-
                 avg_loss = total_loss / loss_count if loss_count > 0 else 0.0
                 now = time.time()
                 log = {
@@ -541,34 +494,27 @@ class AITrainer:
                     "avg_reward": round(reward_window_sum / log_interval, 2),
                     "avg_loss": round(avg_loss, 6),
                     "elapsed_time": round(now - start_time, 2),
-                    "log_interval_seconds": round(now - start_time, 2),
                     "lr": round(self.network.learning_rate, 6),
                     "entropy_coef": round(self.network.entropy_coef, 6),
                     "gate_win_rate": round(gate_win_rate, 4),
                     "eval_games": self.eval_games,
                     "eval_triggered": eval_triggered,
-                    "batch_previous_model_promoted": batch_promoted,
                     "previous_model_promoted": promoted,
                     "approx_kl": round(update_stats["approx_kl"], 6),
                     "kl_early_stop": bool(update_stats["early_stop"]),
-                    "best_opp_ratio": self.best_opponent_ratio,
-                    "prev_opp_ratio": self.previous_opponent_ratio,
-                    "random_old_opp_ratio": self.random_old_opponent_ratio,
                     "best_eval_winrate": round(self.best_eval_winrate, 4),
                     "algo": "PPO"
                 }
                 print(json.dumps(log), flush=True)
-                last_log_time = now
                 total_loss = 0.0
                 loss_count = 0
                 reward_window_sum = 0.0
             gc.collect()
 
         self.total_trained_episodes = run_start_total_episode + episodes
+        print(f"[AITrainer] PPO training completed in {time.time() - start_time:.2f} seconds.", flush=True)
 
-        duration = time.time() - start_time
-        print(f"[AITrainer] PPO training completed in {duration:.2f} seconds.", flush=True)
-
+    # --- GitHub 동기화 ---
     def sync_to_github(self, root_dir, rel_model_path, ep):
         try:
             print(f"[Git-Push] Attempting to push model at episode {ep}...", flush=True)
@@ -576,55 +522,29 @@ class AITrainer:
             if not os.path.isdir(git_dir):
                 print(f"[Git-Push] Skip: not a git repository at {root_dir}", flush=True)
                 return
-
             token = os.getenv("GITHUB_TOKEN")
-            if token:
-                clean_token = token.strip()
-                push_url = f"https://warrior-0:{clean_token}@github.com/warrior-0/autocardbattle.git"
-                
-                # 1. Fetch 최신 상태
-                subprocess.run(["git", "fetch", push_url, "main"], cwd=root_dir, capture_output=True)
-                
-                # 2. 모델 파일 추가 및 커밋
-                model_dir = os.path.dirname(rel_model_path)
-                extra_rel_paths = [
-                    os.path.join(model_dir, "best_model.json"),
-                    os.path.join(model_dir, "current_model.json"),
-                    os.path.join(model_dir, "model_prev_100.json"),
-                    os.path.join(model_dir, "model_prev_200.json"),
-                    os.path.join(model_dir, "model_prev_300.json"),
-                    os.path.join(model_dir, "model_prev_400.json"),
-                    os.path.join(model_dir, "model_prev_500.json"),
-                ]
-                subprocess.run(["git", "add", str(rel_model_path)], cwd=root_dir, check=True)
-                for p in extra_rel_paths:
-                    abs_p = os.path.join(root_dir, p)
-                    if os.path.exists(abs_p):
-                        subprocess.run(["git", "add", p], cwd=root_dir, capture_output=True)
-                commit_res = subprocess.run(["git", "commit", "-m", f"chore: update trained model at episode {ep}"], cwd=root_dir, capture_output=True)
-                
-                if commit_res.returncode == 0:
-                    # 3. Pull with Rebase (충돌 시 로컬 모델 우선)
-                    # 이전에 성공했던 핵심 로직: rebase를 통해 히스토리를 깔끔하게 유지
-                    subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True)
-                    
-                    # 4. Push (Force push 제거)
-                    push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
-                    
-                    if push_res.returncode == 0:
-                        print(f"[Git-Push] Successfully pushed model to GitHub.", flush=True)
-                    else:
-                        print(f"[Git-Push] Push failed: {push_res.stderr}. Aborting to avoid data loss.", flush=True)
-                        # 실패 시 상태 되돌리기
-                        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
-                else:
-                    print(f"[Git-Push] Nothing to commit (model might be unchanged).", flush=True)
-            else:
+            if not token:
                 print(f"[Git-Push] Error: GITHUB_TOKEN not found in environment.", flush=True)
+                return
+            push_url = f"https://warrior-0:{token.strip()}@github.com/warrior-0/autocardbattle.git"
+            subprocess.run(["git", "fetch", push_url, "main"], cwd=root_dir, capture_output=True)
+            subprocess.run(["git", "add", rel_model_path], cwd=root_dir, check=True)
+            commit_res = subprocess.run(["git", "commit", "-m", f"chore: update trained model at episode {ep}"], cwd=root_dir, capture_output=True)
+            if commit_res.returncode == 0:
+                subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True)
+                push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
+                if push_res.returncode == 0:
+                    print(f"[Git-Push] Successfully pushed model to GitHub.", flush=True)
+                else:
+                    print(f"[Git-Push] Push failed: {push_res.stderr}", flush=True)
+                    subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
+            else:
+                print(f"[Git-Push] Nothing to commit (model might be unchanged).", flush=True)
         except Exception as e:
             print(f"[Git-Push] Error during GitHub sync: {e}", flush=True)
 
 
+# --- 메인 실행 ---
 if __name__ == "__main__":
     model_path = os.getenv("AUTOCARDBATTLE_MODEL_PATH", "src/main/resources/python/q_policy.json")
     episodes = int(os.getenv("AUTOCARDBATTLE_TRAIN_EPISODES", "50"))
