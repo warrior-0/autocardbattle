@@ -623,9 +623,17 @@ class AITrainer:
                 commit_res = subprocess.run(["git", "commit", "-m", f"chore: update trained model at episode {ep}"], cwd=root_dir, capture_output=True)
                 
                 if commit_res.returncode == 0:
-                    # 3. Pull with Rebase (충돌 시 로컬 모델 우선)
-                    # 이전에 성공했던 핵심 로직: rebase를 통해 히스토리를 깔끔하게 유지
-                    subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True)
+                    # 3. Rebase onto fetched remote main (충돌 시 안전 중단)
+                    rebase_res = subprocess.run(
+                        ["git", "rebase", "FETCH_HEAD"],
+                        cwd=root_dir,
+                        capture_output=True,
+                        text=True
+                    )
+                    if rebase_res.returncode != 0:
+                        print(f"[Git-Push] Rebase failed: {rebase_res.stderr}", flush=True)
+                        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
+                        return
                     
                     # 4. Push (Force push 제거)
                     push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
