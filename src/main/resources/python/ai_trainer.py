@@ -323,7 +323,6 @@ class AITrainer:
 
     def train(self, episodes=50, log_interval=10):
         start_time = time.time()
-        last_log_time = start_time
         map_data = os.getenv("AUTOCARDBATTLE_MAP_DATA")
         env = GameSimulator(dice_catalog=None, map_data=map_data)
 
@@ -473,7 +472,7 @@ class AITrainer:
                     "avg_reward": round(reward_window_sum / log_interval, 2),
                     "avg_loss": round(avg_loss, 6),
                     "elapsed_time": round(now - start_time, 2),
-                    "log_interval_seconds": round(now - last_log_time, 2),
+                    "log_interval_seconds": round(now - start_time, 2),
                     "lr": round(self.network.learning_rate, 6),
                     "entropy_coef": round(self.network.entropy_coef, 6),
                     "gate_win_rate": round(gate_win_rate, 4),
