@@ -75,7 +75,16 @@ class AITrainer:
 
         self.push_interval = 10
         self.checkpoint_interval = 100
-        self.max_checkpoints = 5
+
+        self.best_model_path = os.path.join(os.path.dirname(self.model_path), "best_model.json")
+        self.current_model_path = os.path.join(os.path.dirname(self.model_path), "current_model.json")
+        self.prev_model_paths = {
+            100: os.path.join(os.path.dirname(self.model_path), "model_prev_100.json"),
+            200: os.path.join(os.path.dirname(self.model_path), "model_prev_200.json"),
+            300: os.path.join(os.path.dirname(self.model_path), "model_prev_300.json"),
+            400: os.path.join(os.path.dirname(self.model_path), "model_prev_400.json"),
+            500: os.path.join(os.path.dirname(self.model_path), "model_prev_500.json"),
+        }
 
         self.total_trained_episodes = 0
 
@@ -88,7 +97,8 @@ class AITrainer:
         self.best_network = self._clone_network(self.network)
         self.previous_network = self._clone_network(self.network)
         self.historical_networks = deque(maxlen=10)
-        self._append_snapshot(self._clone_network(self.network))
+        self._bootstrap_fixed_policy_files()
+        self._refresh_fixed_networks_from_files()
 
     def _clone_network(self, src_network):
         cloned = PPONetwork(
@@ -160,6 +170,53 @@ class AITrainer:
             print(f"[AITrainer] PPO network snapshot saved to {path}", flush=True)
         except Exception as e:
             print(f"[AITrainer] Failed to save network snapshot: {e}", flush=True)
+
+    def _load_network_model(self, path, fallback_network):
+        loaded = self._clone_network(fallback_network)
+        if not os.path.exists(path):
+            return loaded
+        try:
+            with open(path, "r") as f:
+                checkpoint = json.load(f)
+            if isinstance(checkpoint, dict):
+                if "policy_state_dict" in checkpoint:
+                    loaded.load_state_dict(checkpoint["policy_state_dict"], strict=True)
+                elif "state_dict" in checkpoint:
+                    loaded.load_state_dict(checkpoint["state_dict"], strict=True)
+                elif "net.0.weight" in checkpoint:
+                    loaded.load_state_dict(checkpoint, strict=True)
+        except Exception as e:
+            print(f"[AITrainer] Failed to load network snapshot from {path}: {e}", flush=True)
+        return loaded
+
+    def _bootstrap_fixed_policy_files(self):
+        if not os.path.exists(self.best_model_path):
+            self.save_network_model(self.network, self.best_model_path)
+        if not os.path.exists(self.current_model_path):
+            self.save_network_model(self.network, self.current_model_path)
+        if not os.path.exists(self.prev_model_paths[100]):
+            self.save_network_model(self.network, self.prev_model_paths[100])
+
+    def _refresh_fixed_networks_from_files(self):
+        self.best_network = self._load_network_model(self.best_model_path, self.network)
+        self.previous_network = self._load_network_model(self.prev_model_paths[100], self.network)
+
+        self.historical_networks = deque(maxlen=10)
+        self.historical_networks.append(self.previous_network)
+        for delta in [200, 300, 400, 500]:
+            p = self.prev_model_paths[delta]
+            if os.path.exists(p):
+                self.historical_networks.append(self._load_network_model(p, self.previous_network))
+
+    def _rotate_previous_model_files(self):
+        for src_delta, dst_delta in [(400, 500), (300, 400), (200, 300), (100, 200)]:
+            src = self.prev_model_paths[src_delta]
+            dst = self.prev_model_paths[dst_delta]
+            if os.path.exists(src):
+                with open(src, "r") as f:
+                    data = json.load(f)
+                with open(dst, "w") as f:
+                    json.dump(data, f)
 
     def _action_to_index(self, action):
         if action == PASS_ACTION:
@@ -260,10 +317,6 @@ class AITrainer:
         )
         return update_stats
 
-    def _append_snapshot(self, snapshot_network):
-        self.historical_networks.append(snapshot_network)
-        self.previous_network = self._clone_network(snapshot_network)
-
     def _choose_enemy_network(self):
         r = np.random.rand()
         if r < self.best_opponent_ratio:
@@ -279,43 +332,9 @@ class AITrainer:
             return self.previous_network
         return self.best_network
 
-    def _trim_old_checkpoints(self):
-        checkpoint_dir = os.path.dirname(self.model_path)
-        checkpoint_prefix = "checkpoint_ep_"
-        checkpoint_suffix = ".json"
-        if not os.path.isdir(checkpoint_dir):
-            return
-
-        checkpoints = []
-        for name in os.listdir(checkpoint_dir):
-            if name.startswith(checkpoint_prefix) and name.endswith(checkpoint_suffix):
-                try:
-                    ep = int(name[len(checkpoint_prefix):-len(checkpoint_suffix)])
-                    checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
-                except:
-                    pass
-
-        checkpoints.sort()
-        while len(checkpoints) > self.max_checkpoints:
-            ep, path = checkpoints.pop(0)
-            if os.path.exists(path):
-                os.remove(path)
-
-    def _save_checkpoint(self, ep):
-        checkpoint_dir = os.path.dirname(self.model_path)
-        checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_ep_{ep}.json")
-        self.save_model(checkpoint_path)
-        self._trim_old_checkpoints()
-
     def _save_relative_history_models(self, previous_fixed_network):
-        base_dir = os.path.dirname(self.model_path)
-        fixed_models = [previous_fixed_network]
-        fixed_models.extend(list(self.historical_networks)[-2::-1])
-
-        for i, delta in enumerate([100, 200, 300, 400, 500]):
-            target_path = os.path.join(base_dir, f"model_prev_{delta}.json")
-            if i < len(fixed_models):
-                self.save_network_model(fixed_models[i], target_path)
+        self._rotate_previous_model_files()
+        self.save_network_model(previous_fixed_network, self.prev_model_paths[100])
 
     def evaluate_against_best(self, eval_games=1000):
         eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
@@ -388,7 +407,8 @@ class AITrainer:
             self.best_network = self._clone_network(self.network)
             self.previous_network = self._clone_network(self.network)
             self.historical_networks = deque(maxlen=10)
-            self._append_snapshot(self._clone_network(self.network))
+            self._bootstrap_fixed_policy_files()
+            self._refresh_fixed_networks_from_files()
 
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
@@ -525,13 +545,12 @@ class AITrainer:
 
             if total_episode % self.checkpoint_interval == 0:
                 self.total_trained_episodes = total_episode
-                self._save_checkpoint(total_episode)
-                previous_fixed_network = self._clone_network(self.previous_network)
-                base_dir = os.path.dirname(self.model_path)
-                self.save_model(os.path.join(base_dir, "current_model.json"))
-                self.save_network_model(self.best_network, os.path.join(base_dir, "best_model.json"))
+                previous_fixed_network = self._clone_network(self.network)
+                self.save_model(self.current_model_path)
+                self.save_network_model(self.best_network, self.best_model_path)
                 self._save_relative_history_models(previous_fixed_network)
-                self._append_snapshot(self._clone_network(self.network))
+                self._refresh_fixed_networks_from_files()
+                self.sync_to_github(root_dir, rel_model_path, total_episode)
 
             if ep % self.eval_interval == 0:
                 wins, losses = self.evaluate_against_best(self.eval_batch)
@@ -555,9 +574,10 @@ class AITrainer:
                     gate_win_rate = self.eval_wins / max(1, self.eval_games)
                     if gate_win_rate > self.best_eval_winrate:
                         self.best_eval_winrate = gate_win_rate
-                        self.save_model(os.path.join(os.path.dirname(self.model_path), "best_model.json"))
+                        self.save_network_model(self.best_network, self.best_model_path)
                     if gate_win_rate >= self.replace_rate:
                         self.best_network = self._clone_network(self.network)
+                        self.save_network_model(self.best_network, self.best_model_path)
                         promoted = True
                     self.eval_games = 0
                     self.eval_wins = 0
