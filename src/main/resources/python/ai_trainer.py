@@ -536,7 +536,6 @@ class AITrainer:
                 if commit_res.returncode == 0:
                     # 3. Pull with Rebase (충돌 시 원격 소스코드 보존을 위해 rebase 시도)
                     # 모델 파일 외의 충돌은 원격(origin)을 따르도록 설정
-                    # -X ours: 충돌 시 로컬(현재 학습된 모델)을 우선함
                     pull_res = subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
                     
                     if pull_res.returncode != 0:
