@@ -472,10 +472,27 @@ class AITrainer:
                 total_loss += update_stats["loss"]
                 loss_count += 1
 
+            total_episode = run_start_total_episode + ep
             promoted = False
             batch_promoted = False
             gate_win_rate = 0.0
             eval_triggered = False
+
+            if total_episode % self.push_interval == 0:
+                self.total_trained_episodes = total_episode
+                self.save_model(self.model_path)
+                self.sync_to_github(root_dir, rel_model_path, total_episode)
+
+            if total_episode % self.checkpoint_interval == 0:
+                self.total_trained_episodes = total_episode
+                self._save_checkpoint(total_episode)
+                previous_fixed_network = self._clone_network(self.previous_network)
+                base_dir = os.path.dirname(self.model_path)
+                self.save_model(os.path.join(base_dir, "current_model.json"))
+                self.save_network_model(self.best_network, os.path.join(base_dir, "best_model.json"))
+                self._save_relative_history_models(previous_fixed_network)
+                self._append_snapshot(self._clone_network(self.network))
+
             if ep % self.eval_interval == 0:
                 eval_triggered = True
                 wins, losses = self.evaluate_against_best(self.eval_batch)
@@ -505,8 +522,6 @@ class AITrainer:
                         promoted = True
                     self.eval_games = 0
                     self.eval_wins = 0
-
-            total_episode = run_start_total_episode + ep
 
             if ep % log_interval == 0:
                 pending_gate_games = self.eval_games
@@ -547,21 +562,6 @@ class AITrainer:
                 total_loss = 0.0
                 loss_count = 0
                 reward_window_sum = 0.0
-
-            if total_episode % self.push_interval == 0:
-                self.total_trained_episodes = total_episode
-                self.save_model(self.model_path)
-                self.sync_to_github(root_dir, rel_model_path, total_episode)
-
-            if total_episode % self.checkpoint_interval == 0:
-                self.total_trained_episodes = total_episode
-                self._save_checkpoint(total_episode)
-                previous_fixed_network = self._clone_network(self.previous_network)
-                base_dir = os.path.dirname(self.model_path)
-                self.save_model(os.path.join(base_dir, "current_model.json"))
-                self.save_network_model(self.best_network, os.path.join(base_dir, "best_model.json"))
-                self._save_relative_history_models(previous_fixed_network)
-                self._append_snapshot(self._clone_network(self.network))
             gc.collect()
 
         self.total_trained_episodes = run_start_total_episode + episodes
