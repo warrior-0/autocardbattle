@@ -275,9 +275,10 @@ class AITrainer:
                     checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
                 except:
                     pass
+
         checkpoints.sort()
         while len(checkpoints) > self.max_checkpoints:
-            _, path = checkpoints.pop(0)
+            ep, path = checkpoints.pop(0)
             if os.path.exists(path):
                 os.remove(path)
 
@@ -519,37 +520,32 @@ class AITrainer:
                 print(f"[Git-Push] Skip: not a git repository at {root_dir}", flush=True)
                 return
 
-            # 원격의 최신 변경사항을 가져와서 로컬 브랜치와 병합 (충돌 방지)
-            # -X ours 옵션을 사용하여 충돌 시 로컬(학습된 모델)을 우선시하되, 소스 코드는 원격을 따름
             token = os.getenv("GITHUB_TOKEN")
             if token:
                 clean_token = token.strip()
                 push_url = f"https://warrior-0:{clean_token}@github.com/warrior-0/autocardbattle.git"
                 
-                # 1. Fetch
+                # 1. Fetch 최신 상태
                 subprocess.run(["git", "fetch", push_url, "main"], cwd=root_dir, capture_output=True)
                 
-                # 2. Add and Commit model
+                # 2. 모델 파일 추가 및 커밋
                 subprocess.run(["git", "add", str(rel_model_path)], cwd=root_dir, check=True)
                 commit_res = subprocess.run(["git", "commit", "-m", f"chore: update trained model at episode {ep}"], cwd=root_dir, capture_output=True)
                 
                 if commit_res.returncode == 0:
-                    # 3. Pull with Rebase (충돌 시 원격 소스코드 보존을 위해 rebase 시도)
-                    # 모델 파일 외의 충돌은 원격(origin)을 따르도록 설정
-                    pull_res = subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
+                    # 3. Pull with Rebase (충돌 시 로컬 모델 우선)
+                    # 이전에 성공했던 핵심 로직: rebase를 통해 히스토리를 깔끔하게 유지
+                    subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True)
                     
-                    if pull_res.returncode != 0:
-                        print(f"[Git-Push] Pull/Rebase failed: {pull_res.stderr}. Aborting push to avoid data loss.", flush=True)
-                        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
-                        return
-
                     # 4. Push (Force push 제거)
                     push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
                     
                     if push_res.returncode == 0:
                         print(f"[Git-Push] Successfully pushed model to GitHub.", flush=True)
                     else:
-                        print(f"[Git-Push] Push failed: {push_res.stderr}. Will retry at next interval.", flush=True)
+                        print(f"[Git-Push] Push failed: {push_res.stderr}. Aborting to avoid data loss.", flush=True)
+                        # 실패 시 상태 되돌리기
+                        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
                 else:
                     print(f"[Git-Push] Nothing to commit (model might be unchanged).", flush=True)
             else:

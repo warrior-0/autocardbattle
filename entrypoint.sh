@@ -46,6 +46,5 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 # 3) Java 애플리케이션 실행
-# -Dserver.port 시스템 프로퍼티를 추가하여 Spring Boot 등에서 포트를 인식하도록 함
 echo "[Server] Starting Java application on port ${SERVER_PORT}..."
 exec java -Xms64m -Xmx200m -Dserver.port=${SERVER_PORT} -jar app.jar
