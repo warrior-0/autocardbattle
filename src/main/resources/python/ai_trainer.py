@@ -59,8 +59,9 @@ class AITrainer:
         self.entropy_decay = 0.9997
         self.training_step = 0
 
-        self.eval_batch = 1000
+        self.eval_batch = 100
         self.eval_total = 1000
+        self.eval_progress_log_interval = 10
         self.replace_rate = 0.55
         self.eval_interval = 100
         self.eval_games = 0
@@ -292,7 +293,7 @@ class AITrainer:
         eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
         wins = 0
         losses = 0
-        for _ in range(eval_games):
+        for game_index in range(1, eval_games + 1):
             p_state, e_state = eval_env.reset()
             done = False
             info = {}
@@ -318,6 +319,18 @@ class AITrainer:
                 wins += 1
             elif winner == -1:
                 losses += 1
+
+            if game_index % self.eval_progress_log_interval == 0 or game_index == eval_games:
+                print(json.dumps({
+                    "eval_progress": {
+                        "played": game_index,
+                        "total": eval_games,
+                        "wins": wins,
+                        "losses": losses,
+                        "draws": game_index - wins - losses,
+                        "win_rate": round(wins / max(1, (wins + losses)), 4) if (wins + losses) > 0 else 0.0
+                    }
+                }), flush=True)
 
         return wins, losses
 
@@ -433,6 +446,7 @@ class AITrainer:
                 loss_count += 1
 
             promoted = False
+            batch_promoted = False
             gate_win_rate = 0.0
             eval_triggered = False
             if ep % self.eval_interval == 0:
@@ -440,6 +454,23 @@ class AITrainer:
                 wins, losses = self.evaluate_against_previous(self.eval_batch)
                 self.eval_games += self.eval_batch
                 self.eval_wins += wins
+                batch_win_rate = wins / max(1, (wins + losses))
+                if batch_win_rate >= self.replace_rate:
+                    self.previous_network = self._clone_network(self.network)
+                    batch_promoted = True
+                print(json.dumps({
+                    "eval_batch_result": {
+                        "batch_games": self.eval_batch,
+                        "batch_wins": wins,
+                        "batch_losses": losses,
+                        "batch_draws": self.eval_batch - wins - losses,
+                        "batch_win_rate": round(batch_win_rate, 4),
+                        "batch_previous_model_promoted": batch_promoted,
+                        "accum_games": self.eval_games,
+                        "accum_wins": self.eval_wins,
+                        "target_games": self.eval_total
+                    }
+                }), flush=True)
                 if self.eval_games >= self.eval_total:
                     gate_win_rate = self.eval_wins / max(1, self.eval_games)
                     if gate_win_rate > self.best_eval_winrate:
@@ -478,6 +509,7 @@ class AITrainer:
                     "gate_win_rate": round(gate_win_rate, 4),
                     "eval_games": self.eval_games,
                     "eval_triggered": eval_triggered,
+                    "batch_previous_model_promoted": batch_promoted,
                     "previous_model_promoted": promoted,
                     "approx_kl": round(update_stats["approx_kl"], 6),
                     "kl_early_stop": bool(update_stats["early_stop"]),
