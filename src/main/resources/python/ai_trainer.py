@@ -73,6 +73,9 @@ class AITrainer:
         self.best_network = self._clone_network(self.network)
         self.historical_networks = deque(maxlen=5)
 
+        # 초기 상태(0번 학습된 모델)를 별도로 보관 (0~1999판 구간에서 사용)
+        self.initial_network_state = self.network.state_dict()
+
         self.load_model(self.model_path)
         
         # 만약 로드 시점에 승급전이 필요하다고 되어있으면 (이전 실행 중단 등)
@@ -212,10 +215,28 @@ class AITrainer:
         checkpoint_dir = os.path.dirname(self.model_path)
         self._rotate_checkpoints()
         checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_ep_1000.json")
-        if os.path.exists(self.model_path):
-            shutil.copy2(self.model_path, checkpoint_path)
+
+        # 0~1999판 사이에는 0번 학습된 초기 모델을 저장하여 과적합 방지
+        if ep < 2000:
+            print(f"[AITrainer] Under 2000 episodes ({ep}). Saving initial (0-trained) model as checkpoint.", flush=True)
+            try:
+                os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+                checkpoint = {
+                    "policy_state_dict": self.initial_network_state,
+                    "total_trained_episodes": 0,
+                    "needs_evaluation": False,
+                    "timestamp": time.time()
+                }
+                with open(checkpoint_path, 'w') as f:
+                    json.dump(checkpoint, f)
+            except Exception as e:
+                print(f"[AITrainer] Initial checkpoint save failed: {e}", flush=True)
         else:
-            self.save_model(checkpoint_path)
+            # 2000판 이상부터는 원래대로 현재 학습된 모델을 저장
+            if os.path.exists(self.model_path):
+                shutil.copy2(self.model_path, checkpoint_path)
+            else:
+                self.save_model(checkpoint_path)
 
     def evaluate_model(self, eval_episodes=1000):
         """별도의 승급전(Evaluation)을 수행합니다. (학습 없음)"""
@@ -282,7 +303,7 @@ class AITrainer:
             if self.total_trained_episodes % 1000 == 0:
                 print(f"[AITrainer] Reached {self.total_trained_episodes} episodes. Saving and starting evaluation...", flush=True)
                 
-                # 1. 체크포인트 보관 (이전 1000판 모델)
+                # 1. 체크포인트 보관 (이전 1000판 모델 또는 초기 모델)
                 self._save_checkpoint(self.total_trained_episodes)
                 
                 # 2. 현재 모델 저장 및 승급전 플래그 설정
