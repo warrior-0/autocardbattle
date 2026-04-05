@@ -90,8 +90,65 @@ class AITrainer:
         self.load_model(self.model_path)
         self.previous_network = self._clone_network(self.network)
         self.best_network = self._clone_network(self.network)
-        for _ in range(5):
-            self.historical_networks.append(self._clone_network(self.network))
+        
+        # 기존 체크포인트 파일들을 검색하여 historical_networks에 로드
+        self._load_historical_checkpoints()
+        
+        # 만약 로드된 과거 모델이 없다면 현재 모델로 채움 (기존 로직 유지)
+        if len(self.historical_networks) == 0:
+            for _ in range(5):
+                self.historical_networks.append(self._clone_network(self.network))
+        elif len(self.historical_networks) < 5:
+            # 부족한 만큼 현재 모델로 채움
+            current_count = len(self.historical_networks)
+            for _ in range(5 - current_count):
+                self.historical_networks.append(self._clone_network(self.network))
+
+    def _load_historical_checkpoints(self):
+        """저장소에 있는 checkpoint_ep_*.json 파일들을 찾아 historical_networks에 로드합니다."""
+        checkpoint_dir = os.path.dirname(self.model_path)
+        checkpoint_prefix = "checkpoint_ep_"
+        checkpoint_suffix = ".json"
+        
+        if not os.path.isdir(checkpoint_dir):
+            return
+
+        checkpoints = []
+        for name in os.listdir(checkpoint_dir):
+            if name.startswith(checkpoint_prefix) and name.endswith(checkpoint_suffix):
+                try:
+                    ep = int(name[len(checkpoint_prefix):-len(checkpoint_suffix)])
+                    checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
+                except ValueError:
+                    continue
+        
+        # 에피소드 순서대로 정렬 (오래된 것부터)
+        checkpoints.sort()
+        
+        # 최대 5개까지 로드 (최신 순으로 5개 또는 전체 중 균등하게 선택할 수 있으나, 여기서는 최신 순 5개)
+        # 만약 0번, 1000번 등 특정 모델을 꼭 포함하고 싶다면 로직을 조정할 수 있음
+        # 현재는 deque maxlen=5에 맞춰 마지막 5개를 로드
+        loaded_count = 0
+        for ep, path in checkpoints[-5:]:
+            try:
+                # 임시 네트워크 생성하여 로드
+                temp_net = self._clone_network(self.network)
+                with open(path, 'r') as f:
+                    cp_data = json.load(f)
+                
+                state_dict = None
+                if "policy_state_dict" in cp_data:
+                    state_dict = cp_data["policy_state_dict"]
+                elif "state_dict" in cp_data:
+                    state_dict = cp_data["state_dict"]
+                
+                if state_dict:
+                    temp_net.load_state_dict(state_dict, strict=True)
+                    self.historical_networks.append(temp_net)
+                    loaded_count += 1
+                    print(f"[AITrainer] Loaded historical checkpoint: {path} (ep {ep})", flush=True)
+            except Exception as e:
+                print(f"[AITrainer] Failed to load historical checkpoint {path}: {e}", flush=True)
 
     def _clone_network(self, src_network):
         cloned = PPONetwork(
@@ -274,231 +331,121 @@ class AITrainer:
                 try:
                     ep = int(name[len(checkpoint_prefix):-len(checkpoint_suffix)])
                     checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
-                except:
-                    pass
+                except ValueError:
+                    continue
+
+        if len(checkpoints) <= self.max_checkpoints:
+            return
 
         checkpoints.sort()
-        while len(checkpoints) > self.max_checkpoints:
-            ep, path = checkpoints.pop(0)
-            if os.path.exists(path):
+        to_remove = checkpoints[:-self.max_checkpoints]
+        for ep, path in to_remove:
+            try:
                 os.remove(path)
+                print(f"[AITrainer] Removed old checkpoint: {path}", flush=True)
+            except Exception as e:
+                print(f"[AITrainer] Failed to remove checkpoint {path}: {e}", flush=True)
 
     def _save_checkpoint(self, ep):
         checkpoint_dir = os.path.dirname(self.model_path)
-        checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_ep_{ep}.json")
+        checkpoint_name = f"checkpoint_ep_{ep}.json"
+        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
         self.save_model(checkpoint_path)
         self._trim_old_checkpoints()
 
-    def evaluate_against_previous(self, eval_games=64):
-        eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
-        wins = 0
-        losses = 0
-        played_games = 0
-        early_stopped = False
-        early_stop_reason = None
-        for game_index in range(1, eval_games + 1):
-            p_state, e_state = eval_env.reset()
-            done = False
-            info = {}
-            while not done:
-                p_valid = eval_env.get_valid_actions_for("player")
-                p_action, _, _, _, _ = self.select_action(
-                    p_state,
-                    p_valid,
-                    mode='play',
-                    network_to_use=self.network,
-                )
-                e_valid = eval_env.get_valid_actions_for("enemy")
-                e_action, _, _, _, _ = self.select_action(
-                    e_state,
-                    e_valid,
-                    mode='play',
-                    network_to_use=self.best_network,
-                )
-                p_state, e_state, _, _, done, info = eval_env.step_self_play(p_action, e_action)
-
-            winner = info.get("winner")
-            if winner == 1:
-                wins += 1
-            elif winner == -1:
-                losses += 1
-            played_games = game_index
-
-            remaining_games = eval_games - game_index
-            guaranteed_min_rate = wins / max(1, (wins + losses + remaining_games))
-            guaranteed_max_rate = (wins + remaining_games) / max(1, (wins + remaining_games + losses))
-
-            if guaranteed_min_rate >= self.replace_rate:
-                early_stopped = True
-                early_stop_reason = "promoted_early"
-            elif guaranteed_max_rate < self.replace_rate:
-                early_stopped = True
-                early_stop_reason = "not_promoted_early"
-
-            if game_index % self.eval_progress_log_interval == 0 or game_index == eval_games:
-                print(json.dumps({
-                    "eval_progress": {
-                        "opponent": "best_model",
-                        "played": game_index,
-                        "total": eval_games,
-                        "wins": wins,
-                        "losses": losses,
-                        "draws": game_index - wins - losses,
-                        "win_rate": round(wins / max(1, (wins + losses)), 4) if (wins + losses) > 0 else 0.0
-                    }
-                }), flush=True)
-            if early_stopped:
-                print(json.dumps({
-                    "eval_early_stop": {
-                        "reason": early_stop_reason,
-                        "played": played_games,
-                        "total": eval_games,
-                        "wins": wins,
-                        "losses": losses,
-                        "draws": played_games - wins - losses,
-                        "guaranteed_min_rate": round(guaranteed_min_rate, 4),
-                        "guaranteed_max_rate": round(guaranteed_max_rate, 4),
-                        "replace_rate": self.replace_rate
-                    }
-                }), flush=True)
-                break
-        return {
-            "wins": wins,
-            "losses": losses,
-            "played": played_games,
-            "target": eval_games,
-            "early_stopped": early_stopped,
-            "early_stop_reason": early_stop_reason,
-        }
-
-    def train(self, episodes=50, log_interval=10):
+    def train(self, episodes=1000, log_interval=10, eval_interval=1000):
         start_time = time.time()
-        map_data = os.getenv("AUTOCARDBATTLE_MAP_DATA")
-        env = GameSimulator(dice_catalog=None, map_data=map_data)
-
-        sample_state, _ = env.reset()
-        current_state_size = len(sample_state)
-        if current_state_size != self.state_size:
-            print(f"[AITrainer] Adjusting state_size from {self.state_size} to {current_state_size}", flush=True)
-            self.state_size = current_state_size
-            self.network = PPONetwork(
-                self.state_size,
-                self.action_size,
-                learning_rate=self.base_lr,
-                clip_epsilon=0.2,
-                entropy_coef=self.base_entropy_coef,
-                value_coef=0.5,
-                target_kl=0.02,
-            )
-            try:
-                self.load_model(self.model_path)
-            except Exception as e:
-                print(f"[AITrainer] Could not load model with new state_size: {e}. Starting fresh.", flush=True)
-            self.previous_network = self._clone_network(self.network)
-            self.best_network = self._clone_network(self.network)
-            self.historical_networks = deque(maxlen=5)
-            for _ in range(5):
-                self.historical_networks.append(self._clone_network(self.network))
-
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
-        rel_model_path = os.path.relpath(self.model_path, root_dir)
+        run_start_total_episode = self.total_trained_episodes
+        print(f"[AITrainer] Starting PPO training for {episodes} episodes (total start: {run_start_total_episode})", flush=True)
 
         total_wins = 0
         total_losses = 0
         total_draws = 0
         total_loss = 0.0
         loss_count = 0
-
         reward_window_sum = 0.0
-        run_start_total_episode = self.total_trained_episodes
+        last_log_time = start_time
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(self.model_path), "../../../.."))
+        rel_model_path = os.path.relpath(self.model_path, root_dir)
+
         for ep in range(1, episodes + 1):
-            p_state, e_state = env.reset()
+            enemy_network = self._choose_enemy_network()
+            simulator = GameSimulator()
+            
+            obs_list = []
+            action_list = []
+            log_prob_list = []
+            value_list = []
+            reward_list = []
+            done_list = []
+            mask_list = []
+
+            state = simulator.get_state()
             done = False
             ep_reward = 0.0
 
-            p_traj = {"states": [], "actions": [], "log_probs": [], "action_masks": [], "rewards": [], "dones": [], "values": []}
-            p_round_action_indices = []
-
             while not done:
-                round_before = env.current_round
-                p_valid = env.get_valid_actions_for("player")
-                p_action, p_idx, p_logp, p_val, p_mask = self.select_action(p_state, p_valid, mode='train', network_to_use=self.network)
+                valid_actions = simulator.get_valid_actions()
+                action, action_idx, log_prob, val, mask = self.select_action(state, valid_actions, mode='train')
+                
+                obs_list.append(state)
+                action_list.append(action_idx)
+                log_prob_list.append(log_prob)
+                value_list.append(val)
+                mask_list.append(mask)
 
-                e_valid = env.get_valid_actions_for("enemy")
-                enemy_network = self._choose_enemy_network()
-                e_action, e_idx, e_logp, e_val, e_mask = self.select_action(
-                    e_state, e_valid, mode='play', network_to_use=enemy_network
-                )
+                # Enemy Turn
+                enemy_valid = simulator.get_valid_actions()
+                enemy_action, _, _, _, _ = self.select_action(state, enemy_valid, mode='play', network_to_use=enemy_network)
+                
+                next_state, reward, done, info = simulator.step(action, enemy_action)
+                
+                reward_list.append(reward)
+                done_list.append(done)
+                
+                state = next_state
+                ep_reward += reward
 
-                next_p_state, next_e_state, p_reward, e_reward, done, info = env.step_self_play(p_action, e_action)
-                round_after = info.get("current_round", round_before)
-                round_resolved = (round_after > round_before) or done
+            trajectories = [{
+                "states": obs_list,
+                "actions": action_list,
+                "log_probs": log_prob_list,
+                "values": value_list,
+                "rewards": reward_list,
+                "dones": done_list,
+                "action_masks": mask_list
+            }]
 
-                p_immediate_reward = float(p_reward)
-                if round_resolved:
-                    rr = info.get("round_result", 0)
-                    round_reward_player = 1.0 if rr == 1 else (-1.0 if rr == -1 else -0.1)
-                    p_immediate_reward -= round_reward_player
-
-                p_traj["states"].append(p_state)
-                p_traj["actions"].append(p_idx)
-                p_traj["log_probs"].append(p_logp)
-                p_traj["action_masks"].append(p_mask)
-                p_traj["rewards"].append(p_immediate_reward)
-                p_traj["dones"].append(1.0 if round_resolved else 0.0)
-                p_traj["values"].append(float(p_val))
-
-                step_index = len(p_traj["rewards"]) - 1
-                if p_action != PASS_ACTION:
-                    p_round_action_indices.append(step_index)
-
-                if round_resolved:
-                    rr = info.get("round_result", 0)
-                    round_reward_player = 1.0 if rr == 1 else (-1.0 if rr == -1 else -0.1)
-
-                    p_slot_reward = round_reward_player / float(MAX_ACTIONS_PER_TURN)
-
-                    for idx in p_round_action_indices[:MAX_ACTIONS_PER_TURN]:
-                        p_traj["rewards"][idx] += p_slot_reward
-
-                    p_round_action_indices = []
-
-                p_state = next_p_state
-                e_state = next_e_state
-                ep_reward += p_reward
-
-            update_stats = self.train_on_episode(ep, episodes, [p_traj])
+            update_stats = self.train_on_episode(ep, episodes, trajectories)
+            total_loss += update_stats["loss"]
+            loss_count += 1
             reward_window_sum += ep_reward
 
-            winner = info.get("winner")
-            if winner == 1:
+            if info["winner"] == 1:
                 total_wins += 1
-            elif winner == -1:
+                self.eval_wins += 1
+            elif info["winner"] == -1:
                 total_losses += 1
             else:
                 total_draws += 1
+            
+            self.eval_games += 1
 
-            if update_stats["loss"] > 0:
-                total_loss += update_stats["loss"]
-                loss_count += 1
-
+            eval_triggered = False
             promoted = False
             gate_win_rate = 0.0
-            eval_triggered = False
-            if ep % self.eval_interval == 0:
+            if self.eval_games >= self.eval_batch:
                 eval_triggered = True
-                eval_result = self.evaluate_against_previous(self.eval_batch)
-                wins = eval_result["wins"]
-                losses = eval_result["losses"]
-                played_games = eval_result["played"]
-                self.eval_games += played_games
-                self.eval_wins += wins
-                gate_win_rate = wins / max(1, (wins + losses))
+                gate_win_rate = self.eval_wins / self.eval_games
                 if gate_win_rate >= self.replace_rate:
                     self.best_network = self._clone_network(self.network)
-                    self.previous_network = self._clone_network(self.network)
                     promoted = True
-                    self.save_model(os.path.join(os.path.dirname(self.model_path), "best_model.json"))
+                
+                eval_result = {"early_stopped": False, "early_stop_reason": ""}
+                played_games = self.eval_games
+                wins = self.eval_wins
+                losses = played_games - wins # Simplification for log
+                
                 print(json.dumps({
                     "eval_batch_result": {
                         "batch_games": played_games,
@@ -601,17 +548,15 @@ class AITrainer:
                 
                 if commit_res.returncode == 0:
                     # 3. Pull with Rebase (충돌 시 로컬 모델 우선)
-                    # 이전에 성공했던 핵심 로직: rebase를 통해 히스토리를 깔끔하게 유지
                     subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True)
                     
-                    # 4. Push (Force push 제거)
+                    # 4. Push
                     push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
                     
                     if push_res.returncode == 0:
                         print(f"[Git-Push] Successfully pushed model to GitHub.", flush=True)
                     else:
                         print(f"[Git-Push] Push failed: {push_res.stderr}. Aborting to avoid data loss.", flush=True)
-                        # 실패 시 상태 되돌리기
                         subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
                 else:
                     print(f"[Git-Push] Nothing to commit (model might be unchanged).", flush=True)
