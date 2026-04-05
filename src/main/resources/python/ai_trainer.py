@@ -59,8 +59,8 @@ class AITrainer:
         self.entropy_decay = 0.9997
         self.training_step = 0
 
-        self.eval_batch = 3000
-        self.eval_total = 3000
+        self.eval_batch = 1000
+        self.eval_total = 1000
         self.eval_progress_log_interval = 10
         self.replace_rate = 0.60
         self.eval_interval = 1000
