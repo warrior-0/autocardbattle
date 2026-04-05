@@ -88,7 +88,7 @@ public class TrainingService {
 
     private Map<String, Object> resumeTraining(String jobId, int episodes, int logInterval) throws IOException {
         Path pythonDir = Path.of("src", "main", "resources", "python");
-        // [수정] 모든 학습 결과가 하나의 파일에 덮어씌워지도록 q_policy.json을 직접 사용합니다.
+        // [수] 모든 학습 결과가 하나의 파일에 덮어씌워지도록 q_policy.json을 직접 사용합니다.
         // 이를 통해 GitHub에 중복 파일이 쌓이는 것을 방지하고 최신 모델만 유지합니다.
         Path modelPath = pythonDir.resolve("q_policy.json");
         Path stableModelPath = pythonDir.resolve("q_policy.json");
@@ -184,6 +184,56 @@ public class TrainingService {
         return response;
     }
 
+    public Map<String, Object> stopJob(String jobId) {
+        TrainingJob job = jobs.get(jobId);
+        if (job == null) {
+            return Map.of("error", "Training job not found", "jobId", jobId);
+        }
+
+        if (!job.process.isAlive()) {
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("jobId", job.id);
+            response.put("status", job.status);
+            response.put("message", "Process is not running");
+            response.put("exitCode", job.exitCode);
+            return response;
+        }
+
+        boolean stopped = false;
+        job.process.destroy();
+        try {
+            stopped = job.process.waitFor(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        if (!stopped) {
+            job.process.destroyForcibly();
+            try {
+                stopped = job.process.waitFor(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        if (stopped) {
+            job.status = "STOPPED";
+            job.finishedAt = Instant.now();
+            if (job.exitCode == null) {
+                job.exitCode = 143;
+            }
+            updateMetaStatus(job, "STOPPED");
+            appendLog(job, "Training stopped by API request.");
+        }
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("jobId", job.id);
+        response.put("status", job.status);
+        response.put("stopped", stopped);
+        response.put("exitCode", job.exitCode);
+        return response;
+    }
+
 
     public List<Map<String, Object>> listJobs() {
         return jobs.values().stream()
@@ -227,6 +277,10 @@ public class TrainingService {
                 }
                 int exitCode = job.process.waitFor();
                 job.exitCode = exitCode;
+                if ("STOPPED".equals(job.status)) {
+                    updateMetaStatus(job, "STOPPED");
+                    return;
+                }
                 if (exitCode == 0) {
                     Files.copy(job.modelPath, job.stableModelPath, StandardCopyOption.REPLACE_EXISTING);
                     job.status = "COMPLETED";
