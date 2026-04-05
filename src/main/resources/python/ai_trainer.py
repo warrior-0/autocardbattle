@@ -78,10 +78,10 @@ class AITrainer:
 
         self.load_model(self.model_path)
         
-        # 만약 로드 시점에 승급전이 필요하다고 되어있으면 (이전 실행 중단 등)
-        # 훈련 시작 시점에 체크하여 처리할 예정입니다.
-        
+        # 체크포인트 로드
         self._load_historical_checkpoints()
+        
+        # historical_networks가 비어있으면 초기 모델로 채움
         if len(self.historical_networks) == 0:
             for _ in range(5):
                 self.historical_networks.append(self._clone_network(self.network))
@@ -89,6 +89,9 @@ class AITrainer:
             current_count = len(self.historical_networks)
             for _ in range(5 - current_count):
                 self.historical_networks.append(self._clone_network(self.network))
+
+        # 대전 상대로 쓸 '격차가 유지된 모델'들을 설정
+        self._update_enemy_candidates()
 
     def _load_historical_checkpoints(self):
         checkpoint_dir = os.path.dirname(self.model_path)
@@ -104,7 +107,6 @@ class AITrainer:
                 except ValueError: continue
         checkpoints.sort()
         
-        # historical_networks를 초기화하고 새로 로드 (순서 보장)
         self.historical_networks.clear()
         for ep, path in checkpoints[-5:]:
             try:
@@ -116,6 +118,27 @@ class AITrainer:
                     temp_net.load_state_dict(state_dict, strict=True)
                     self.historical_networks.append(temp_net)
             except Exception: pass
+
+    def _update_enemy_candidates(self):
+        """
+        대전 상대로 쓸 모델들을 현재 시점보다 최소 1000판 이전의 것으로 고정하여 업데이트합니다.
+        이 메서드는 1000판 단위 학습이 완전히 끝나고 체크포인트가 저장된 후에만 호출됩니다.
+        """
+        if self.total_trained_episodes < 2000:
+            # 0~1999판 구간: 적은 항상 0번 학습된 초기 모델
+            self.previous_network = self._clone_network(self.initial_network)
+            self.other_historical_candidates = []
+        else:
+            # 2000판 이상: 리스트의 마지막(방금 저장된 것)을 제외한 바로 앞 모델([-2])을 previous로 사용
+            # 이렇게 하면 2000~2999판 동안은 1000판 모델이 previous가 됨 (1000판 이상의 격차 유지)
+            if len(self.historical_networks) >= 2:
+                self.previous_network = self._clone_network(self.historical_networks[-2])
+                self.other_historical_candidates = [self._clone_network(net) for net in list(self.historical_networks)[:-2]]
+            else:
+                self.previous_network = self._clone_network(self.initial_network)
+                self.other_historical_candidates = []
+        
+        print(f"[AITrainer] Enemy candidates updated for episode {self.total_trained_episodes}. Gap maintained.", flush=True)
 
     def _clone_network(self, src_network):
         cloned = PPONetwork(self.state_size, self.action_size, learning_rate=src_network.learning_rate)
@@ -201,24 +224,13 @@ class AITrainer:
         if r < 0.2: 
             return self.best_network
             
-        # 2. Previous Network (50%) - 현재보다 최소 1000판 이상 이전의 체크포인트
-        # historical_networks의 마지막 요소는 방금 저장된 것이므로, 그 앞의 요소를 사용
+        # 2. Previous Network (50%) - 현재보다 최소 1000판 이상 이전의 체크포인트 (업데이트 시점 분리됨)
         if r < 0.7:
-            if self.total_trained_episodes < 2000:
-                # 0~1999판 구간에서는 무조건 0번 학습 모델 사용 (격차 유지)
-                return self.initial_network
-            else:
-                # 2000판 이상부터는 리스트의 마지막(방금 저장된 것)을 제외한 바로 앞 모델 사용
-                # historical_networks가 deque(maxlen=5)이므로 최소 2개 이상일 때 안전하게 [-2] 선택
-                if len(self.historical_networks) >= 2:
-                    return self.historical_networks[-2]
-                return self.initial_network
+            return self.previous_network
                 
         # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜덤 선택
-        # previous(마지막에서 두번째)보다 더 이전의 모델들 중에서만 선택
-        old_candidates = list(self.historical_networks)[:-2] if len(self.historical_networks) >= 2 else []
-        if old_candidates:
-            return self.random_choice(old_candidates)
+        if self.other_historical_candidates:
+            return self.random_choice(self.other_historical_candidates)
             
         # 후보가 없으면 초기 모델 사용
         return self.initial_network
@@ -240,8 +252,7 @@ class AITrainer:
         self._rotate_checkpoints()
         checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_ep_1000.json")
 
-        # 0~1999판 사이에는 0번 학습된 초기 모델을 저장하여 
-        # 2000판 이후에 '1000판 전의 자신'으로 초기 모델이 선택되게 함
+        # 0~1999판 사이에는 0번 학습된 초기 모델을 저장
         if ep < 2000:
             print(f"[AITrainer] Under 2000 episodes ({ep}). Saving initial (0-trained) model as checkpoint 1000.", flush=True)
             try:
@@ -338,8 +349,11 @@ class AITrainer:
                 # 3. 승급전 수행 (독립적 1000판)
                 self.evaluate_model()
                 
-                # 4. historical_networks 갱신
+                # 4. historical_networks 갱신 및 적 후보군 업데이트
+                # 중요: 이 시점에 갱신된 historical_networks의 마지막 요소는 방금 저장된 최신 모델이지만,
+                # _update_enemy_candidates 내에서 마지막 요소를 제외하고 previous를 설정하므로 격차가 유지됩니다.
                 self._load_historical_checkpoints()
+                self._update_enemy_candidates()
                 
                 # 5. 최종 결과 저장 및 GitHub 푸시
                 self.save_model(self.model_path)
