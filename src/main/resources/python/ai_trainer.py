@@ -329,12 +329,22 @@ class AITrainer:
                 print(f"[AITrainer] Rotated checkpoint: {old_path} -> {new_path}", flush=True)
 
     def _save_checkpoint(self, ep):
+        """1,000판 전의 모델(기존 q_policy.json)을 체크포인트로 보관합니다."""
         checkpoint_dir = os.path.dirname(self.model_path)
-        # 회전 먼저 수행
+        
+        # 1. 기존 체크포인트들을 밀어냅니다 (1000->2000, 2000->3000...)
         self._rotate_checkpoints()
-        # 항상 1000번으로 저장 (파일명은 밀어내기 방식이므로)
-        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_ep_1000.json")
-        self.save_model(checkpoint_path)
+        
+        # 2. 현재 저장되어 있는 q_policy.json(즉, 이번 1000판 학습 전의 모델)을 checkpoint_ep_1000.json으로 복사
+        # 만약 q_policy.json이 없다면 현재 네트워크를 저장
+        if os.path.exists(self.model_path):
+            import shutil
+            checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_ep_1000.json")
+            shutil.copy2(self.model_path, checkpoint_path)
+            print(f"[AITrainer] Saved 1,000 episodes ago model to {checkpoint_path}", flush=True)
+        else:
+            checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_ep_1000.json")
+            self.save_model(checkpoint_path)
 
     def train(self, episodes=1000, log_interval=10, eval_interval=1000):
         start_time = time.time()
@@ -412,11 +422,12 @@ class AITrainer:
             self.eval_games += 1
             total_episode = run_start_total_episode + ep
 
-            # 1000판 단위 즉시 승급전(Evaluation) 및 체크포인트 처리
+            # 1000판 단위 처리
             eval_triggered = False
             promoted = False
             gate_win_rate = 0.0
             if total_episode % 1000 == 0:
+                # 1. 승급전 먼저 수행 (현재 학습된 최신 모델로)
                 eval_triggered = True
                 gate_win_rate = self.eval_wins / self.eval_games
                 if gate_win_rate >= self.replace_rate:
@@ -436,15 +447,19 @@ class AITrainer:
                 self.eval_games = 0
                 self.eval_wins = 0
 
-                # 1000판 도달 시 체크포인트 회전 및 저장
-                self.total_trained_episodes = total_episode
+                # 2. 체크포인트 보관 (중요: 현재 q_policy.json, 즉 1000판 전의 모델을 보관)
                 self._save_checkpoint(total_episode)
+                
+                # 3. historical_networks 갱신 (보관된 1000판 전 모델을 대전 상대로 추가)
+                self._load_historical_checkpoints() # 파일에서 다시 읽어와 최신 상태 반영
                 if self.historical_networks:
                     self.previous_network = self._clone_network(self.historical_networks[-1])
-                self.historical_networks.append(self._clone_network(self.network))
-                
-                # 모델 저장 및 GitHub 푸시
+
+                # 4. 현재 학습된 최신 모델을 q_policy.json으로 저장 (다음 1000판의 기준이 됨)
+                self.total_trained_episodes = total_episode
                 self.save_model(self.model_path)
+                
+                # 5. GitHub 푸시
                 self.sync_to_github(root_dir, rel_model_path, total_episode)
 
             if ep % log_interval == 0:
@@ -493,7 +508,7 @@ class AITrainer:
                 clean_token = token.strip()
                 push_url = f"https://warrior-0:{clean_token}@github.com/warrior-0/autocardbattle.git"
                 subprocess.run(["git", "fetch", push_url, "main"], cwd=root_dir, capture_output=True)
-                subprocess.run(["git", "add", "."], cwd=root_dir, check=True) # 모든 변경사항(체크포인트 포함) 추가
+                subprocess.run(["git", "add", "."], cwd=root_dir, check=True)
                 commit_res = subprocess.run(["git", "commit", "-m", f"chore: update model and checkpoints at episode {ep}"], cwd=root_dir, capture_output=True)
                 
                 if commit_res.returncode == 0:
