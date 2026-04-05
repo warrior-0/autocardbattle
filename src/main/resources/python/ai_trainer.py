@@ -73,8 +73,8 @@ class AITrainer:
         self.best_network = self._clone_network(self.network)
         self.historical_networks = deque(maxlen=5)
 
-        # 초기 상태(0번 학습된 모델)를 별도로 보관 (0~1999판 구간에서 사용)
-        self.initial_network_state = self.network.state_dict()
+        # 0번 학습된 초기 모델 상태 보관 (0~1999판 구간에서 적으로 사용)
+        self.initial_network = self._clone_network(self.network)
 
         self.load_model(self.model_path)
         
@@ -103,6 +103,9 @@ class AITrainer:
                     checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
                 except ValueError: continue
         checkpoints.sort()
+        
+        # historical_networks를 초기화하고 새로 로드 (순서 보장)
+        self.historical_networks.clear()
         for ep, path in checkpoints[-5:]:
             try:
                 temp_net = self._clone_network(self.network)
@@ -193,11 +196,32 @@ class AITrainer:
 
     def _choose_enemy_network(self):
         r = np.random.rand()
-        if r < 0.2: return self.best_network
-        if r < 0.7: return self.previous_network
-        old_candidates = list(self.historical_networks)[:-1]
-        if old_candidates: return self.random_choice(old_candidates)
-        return self.previous_network
+        
+        # 1. Best Network (20%)
+        if r < 0.2: 
+            return self.best_network
+            
+        # 2. Previous Network (50%) - 현재보다 최소 1000판 이상 이전의 체크포인트
+        # historical_networks의 마지막 요소는 방금 저장된 것이므로, 그 앞의 요소를 사용
+        if r < 0.7:
+            if self.total_trained_episodes < 2000:
+                # 0~1999판 구간에서는 무조건 0번 학습 모델 사용 (격차 유지)
+                return self.initial_network
+            else:
+                # 2000판 이상부터는 리스트의 마지막(방금 저장된 것)을 제외한 바로 앞 모델 사용
+                # historical_networks가 deque(maxlen=5)이므로 최소 2개 이상일 때 안전하게 [-2] 선택
+                if len(self.historical_networks) >= 2:
+                    return self.historical_networks[-2]
+                return self.initial_network
+                
+        # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜덤 선택
+        # previous(마지막에서 두번째)보다 더 이전의 모델들 중에서만 선택
+        old_candidates = list(self.historical_networks)[:-2] if len(self.historical_networks) >= 2 else []
+        if old_candidates:
+            return self.random_choice(old_candidates)
+            
+        # 후보가 없으면 초기 모델 사용
+        return self.initial_network
 
     def random_choice(self, lst):
         return lst[np.random.randint(len(lst))]
@@ -216,13 +240,14 @@ class AITrainer:
         self._rotate_checkpoints()
         checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_ep_1000.json")
 
-        # 0~1999판 사이에는 0번 학습된 초기 모델을 저장하여 과적합 방지
+        # 0~1999판 사이에는 0번 학습된 초기 모델을 저장하여 
+        # 2000판 이후에 '1000판 전의 자신'으로 초기 모델이 선택되게 함
         if ep < 2000:
-            print(f"[AITrainer] Under 2000 episodes ({ep}). Saving initial (0-trained) model as checkpoint.", flush=True)
+            print(f"[AITrainer] Under 2000 episodes ({ep}). Saving initial (0-trained) model as checkpoint 1000.", flush=True)
             try:
                 os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
                 checkpoint = {
-                    "policy_state_dict": self.initial_network_state,
+                    "policy_state_dict": self.initial_network.state_dict(),
                     "total_trained_episodes": 0,
                     "needs_evaluation": False,
                     "timestamp": time.time()
@@ -232,7 +257,7 @@ class AITrainer:
             except Exception as e:
                 print(f"[AITrainer] Initial checkpoint save failed: {e}", flush=True)
         else:
-            # 2000판 이상부터는 원래대로 현재 학습된 모델을 저장
+            # 2000판 이상부터는 현재 학습된 최신 모델을 저장
             if os.path.exists(self.model_path):
                 shutil.copy2(self.model_path, checkpoint_path)
             else:
@@ -315,8 +340,6 @@ class AITrainer:
                 
                 # 4. historical_networks 갱신
                 self._load_historical_checkpoints()
-                if self.historical_networks:
-                    self.previous_network = self._clone_network(self.historical_networks[-1])
                 
                 # 5. 최종 결과 저장 및 GitHub 푸시
                 self.save_model(self.model_path)
