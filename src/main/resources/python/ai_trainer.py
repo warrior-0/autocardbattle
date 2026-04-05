@@ -340,7 +340,7 @@ class AITrainer:
             while not done:
                 action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("player"), mode='train')
                 enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=self.best_network)
-                state, _, _, _, done, info = sim.step(action, enemy_action)
+                state, _, _, _, done, info = sim.step_self_play(action, enemy_action)
             if info.get("winner") == 1: wins += 1
             if i % 100 == 0: print(f"[Eval] Progress: {i}/{eval_episodes}, Current Wins: {wins}", flush=True)
         
@@ -382,7 +382,7 @@ class AITrainer:
                 action, act_idx, log_p, val, msk = self.select_action(state, sim.get_valid_actions_for("player"))
                 obs_l.append(state); act_l.append(act_idx); log_l.append(log_p); val_l.append(val); msk_l.append(msk)
                 enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=enemy_net)
-                state, _, rew, _, done, info = sim.step(action, enemy_action)
+                state, _, rew, _, done, info = sim.step_self_play(action, enemy_action)
                 rew_l.append(rew); don_l.append(done); ep_reward += rew
 
             self.train_on_episode([{"states": obs_l, "actions": act_l, "log_probs": log_l, "values": val_l, "rewards": rew_l, "dones": don_l, "action_masks": msk_l}])
