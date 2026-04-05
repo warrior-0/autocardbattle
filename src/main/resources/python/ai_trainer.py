@@ -71,6 +71,7 @@ class AITrainer:
 
         self.previous_network = self._clone_network(self.network)
         self.best_network = self._clone_network(self.network)
+        self.pending_network = self._clone_network(self.network)
         
         # historical_networks는 체크포인트 1000~5000 (최소 1000판 격차 확보된 모델들)
         self.historical_networks = deque(maxlen=5)
@@ -79,21 +80,33 @@ class AITrainer:
         self.initial_network = self._clone_network(self.network)
 
         self.load_model(self.model_path)
+        self._load_or_init_pending_checkpoint()
         
         # 체크포인트 로드 (기존 파일들 로드)
         self._load_historical_checkpoints()
-        
-        # historical_networks가 비어있으면 초기 모델로 채움
-        if len(self.historical_networks) == 0:
-            for _ in range(5):
-                self.historical_networks.append(self._clone_network(self.network))
-        elif len(self.historical_networks) < 5:
-            current_count = len(self.historical_networks)
-            for _ in range(5 - current_count):
-                self.historical_networks.append(self._clone_network(self.network))
 
         # 대전 상대로 쓸 '격차가 유지된 모델'들을 설정
         self._update_enemy_candidates()
+
+    def _has_formal_checkpoints(self):
+        return len(self.historical_networks) > 0
+
+    def _load_or_init_pending_checkpoint(self):
+        checkpoint_dir = os.path.dirname(self.model_path)
+        pending_path = os.path.join(checkpoint_dir, "checkpoint_ep_pending.json")
+        if not os.path.exists(pending_path):
+            # 0판 시점: 자기 자신을 pending으로 초기화
+            self.save_model(pending_path)
+            print("[AITrainer] Initialized pending checkpoint from current model.", flush=True)
+        try:
+            with open(pending_path, 'r') as f:
+                cp_data = json.load(f)
+            state_dict = cp_data.get("policy_state_dict") or cp_data.get("state_dict")
+            if state_dict:
+                self.pending_network.load_state_dict(state_dict, strict=True)
+        except Exception as e:
+            print(f"[AITrainer] Pending checkpoint load failed: {e}", flush=True)
+            self.pending_network = self._clone_network(self.network)
 
     def _load_historical_checkpoints(self):
         """
@@ -135,7 +148,11 @@ class AITrainer:
         대전 상대로 쓸 모델들을 현재 시점보다 최소 1000판 이전의 것으로 고정하여 업데이트합니다.
         """
         # 0~1999판 구간: 적은 항상 0번 학습된 초기 모델
-        if self.total_trained_episodes < 2000:
+        if not self._has_formal_checkpoints():
+            # 정식 체크포인트가 없으면 pending 모델만 상대
+            self.previous_network = self._clone_network(self.pending_network)
+            self.other_historical_candidates = []
+        elif self.total_trained_episodes < 2000:
             self.previous_network = self._clone_network(self.initial_network)
             self.other_historical_candidates = []
         else:
@@ -228,6 +245,9 @@ class AITrainer:
         )
 
     def _choose_enemy_network(self):
+        if not self._has_formal_checkpoints():
+            return self.pending_network
+
         r = np.random.rand()
         
         # 1. Best Network (20%)
@@ -297,6 +317,7 @@ class AITrainer:
                 }
                 with open(pending_path, 'w') as f:
                     json.dump(checkpoint, f)
+                self.pending_network = self._clone_network(self.initial_network)
             except Exception as e:
                 print(f"[AITrainer] Pending save failed: {e}", flush=True)
         else:
@@ -305,6 +326,7 @@ class AITrainer:
                 shutil.copy2(self.model_path, pending_path)
             else:
                 self.save_model(pending_path)
+            self.pending_network = self._clone_network(self.network)
             print(f"[AITrainer] Episode {ep}: Current model saved as pending.", flush=True)
 
     def evaluate_model(self, eval_episodes=1000):
@@ -316,8 +338,8 @@ class AITrainer:
             state, _ = sim.reset()
             done = False
             while not done:
-                action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("player"), mode='play')
-                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='play', network_to_use=self.best_network)
+                action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("player"), mode='train')
+                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=self.best_network)
                 state, _, _, _, done, info = sim.step(action, enemy_action)
             if info.get("winner") == 1: wins += 1
             if i % 100 == 0: print(f"[Eval] Progress: {i}/{eval_episodes}, Current Wins: {wins}", flush=True)
@@ -359,7 +381,7 @@ class AITrainer:
             while not done:
                 action, act_idx, log_p, val, msk = self.select_action(state, sim.get_valid_actions_for("player"))
                 obs_l.append(state); act_l.append(act_idx); log_l.append(log_p); val_l.append(val); msk_l.append(msk)
-                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='play', network_to_use=enemy_net)
+                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=enemy_net)
                 state, _, rew, _, done, info = sim.step(action, enemy_action)
                 rew_l.append(rew); don_l.append(done); ep_reward += rew
 
