@@ -259,7 +259,7 @@ class AITrainer:
         if r < 0.7:
             return self.previous_network
                 
-        # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜덤 선택
+        # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜 선택
         if self.other_historical_candidates:
             return self.random_choice(self.other_historical_candidates)
             
@@ -493,21 +493,38 @@ class AITrainer:
     def sync_to_github(self, root_dir, rel_model_path, ep):
         try:
             token = os.getenv("GITHUB_TOKEN")
-            if not token: return
+            if not token:
+                print(f"[Git-Push] Skipped at episode {ep}: GITHUB_TOKEN not set.", flush=True)
+                return
+
+            print(f"[Git-Push] Preparing sync at episode {ep}...", flush=True)
             push_url = f"https://warrior-0:{token.strip()}@github.com/warrior-0/autocardbattle.git"
             model_abs_path = os.path.join(root_dir, rel_model_path)
             if os.path.exists(model_abs_path):
                 subprocess.run(["git", "add", rel_model_path], cwd=root_dir, check=True)
+                print(f"[Git-Push] Staged model: {rel_model_path}", flush=True)
 
             checkpoint_dir = os.path.dirname(model_abs_path)
             for cp in sorted(glob.glob(os.path.join(checkpoint_dir, "checkpoint_ep_*.json"))):
                 rel_cp = os.path.relpath(cp, root_dir)
                 subprocess.run(["git", "add", rel_cp], cwd=root_dir, check=True)
+                print(f"[Git-Push] Staged checkpoint: {rel_cp}", flush=True)
 
             res = subprocess.run(["git", "commit", "-m", f"chore: update model at {ep}"], cwd=root_dir, capture_output=True)
             if res.returncode == 0:
-                subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True)
-        except Exception: pass
+                push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
+                if push_res.returncode == 0:
+                    print(f"[Git-Push] Success at episode {ep}.", flush=True)
+                else:
+                    err = (push_res.stderr or "").strip()
+                    print(f"[Git-Push] Failed at episode {ep}: {err}", flush=True)
+            else:
+                out = (res.stdout or b"").decode("utf-8", errors="ignore").strip()
+                err = (res.stderr or b"").decode("utf-8", errors="ignore").strip()
+                msg = err if err else out if out else "Nothing to commit."
+                print(f"[Git-Push] Commit skipped at episode {ep}: {msg}", flush=True)
+        except Exception as e:
+            print(f"[Git-Push] Error at episode {ep}: {e}", flush=True)
 
 
 if __name__ == "__main__":
