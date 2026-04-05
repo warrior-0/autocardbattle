@@ -293,6 +293,9 @@ class AITrainer:
         eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
         wins = 0
         losses = 0
+        played_games = 0
+        early_stopped = False
+        early_stop_reason = None
         for game_index in range(1, eval_games + 1):
             p_state, e_state = eval_env.reset()
             done = False
@@ -319,6 +322,18 @@ class AITrainer:
                 wins += 1
             elif winner == -1:
                 losses += 1
+            played_games = game_index
+
+            remaining_games = eval_games - game_index
+            guaranteed_min_rate = wins / max(1, (wins + losses + remaining_games))
+            guaranteed_max_rate = (wins + remaining_games) / max(1, (wins + remaining_games + losses))
+
+            if guaranteed_min_rate >= self.replace_rate:
+                early_stopped = True
+                early_stop_reason = "promoted_early"
+            elif guaranteed_max_rate < self.replace_rate:
+                early_stopped = True
+                early_stop_reason = "not_promoted_early"
 
             if game_index % self.eval_progress_log_interval == 0 or game_index == eval_games:
                 print(json.dumps({
@@ -332,8 +347,29 @@ class AITrainer:
                         "win_rate": round(wins / max(1, (wins + losses)), 4) if (wins + losses) > 0 else 0.0
                     }
                 }), flush=True)
-
-        return wins, losses
+            if early_stopped:
+                print(json.dumps({
+                    "eval_early_stop": {
+                        "reason": early_stop_reason,
+                        "played": played_games,
+                        "total": eval_games,
+                        "wins": wins,
+                        "losses": losses,
+                        "draws": played_games - wins - losses,
+                        "guaranteed_min_rate": round(guaranteed_min_rate, 4),
+                        "guaranteed_max_rate": round(guaranteed_max_rate, 4),
+                        "replace_rate": self.replace_rate
+                    }
+                }), flush=True)
+                break
+        return {
+            "wins": wins,
+            "losses": losses,
+            "played": played_games,
+            "target": eval_games,
+            "early_stopped": early_stopped,
+            "early_stop_reason": early_stop_reason,
+        }
 
     def train(self, episodes=50, log_interval=10):
         start_time = time.time()
@@ -451,8 +487,11 @@ class AITrainer:
             eval_triggered = False
             if ep % self.eval_interval == 0:
                 eval_triggered = True
-                wins, losses = self.evaluate_against_previous(self.eval_batch)
-                self.eval_games += self.eval_batch
+                eval_result = self.evaluate_against_previous(self.eval_batch)
+                wins = eval_result["wins"]
+                losses = eval_result["losses"]
+                played_games = eval_result["played"]
+                self.eval_games += played_games
                 self.eval_wins += wins
                 gate_win_rate = wins / max(1, (wins + losses))
                 if gate_win_rate >= self.replace_rate:
@@ -462,13 +501,16 @@ class AITrainer:
                     self.save_model(os.path.join(os.path.dirname(self.model_path), "best_model.json"))
                 print(json.dumps({
                     "eval_batch_result": {
-                        "batch_games": self.eval_batch,
+                        "batch_games": played_games,
+                        "batch_games_target": self.eval_batch,
                         "batch_wins": wins,
                         "batch_losses": losses,
-                        "batch_draws": self.eval_batch - wins - losses,
+                        "batch_draws": played_games - wins - losses,
                         "gate_win_rate": round(gate_win_rate, 4),
                         "replace_rate": self.replace_rate,
                         "best_model_replaced": promoted,
+                        "early_stopped": eval_result["early_stopped"],
+                        "early_stop_reason": eval_result["early_stop_reason"],
                         "accum_games": self.eval_games,
                         "accum_wins": self.eval_wins,
                         "target_games": self.eval_total
