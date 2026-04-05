@@ -6,6 +6,7 @@ import gc
 import importlib.util
 import numpy as np
 import shutil
+import glob
 from collections import deque
 from ai_models import PPONetwork
 from game_simulator import GameSimulator, PASS_ACTION, MAX_ACTIONS_PER_TURN
@@ -333,6 +334,8 @@ class AITrainer:
         """별도의 승급전(Evaluation)을 수행합니다. (학습 없음)"""
         print(f"[AITrainer] Starting evaluation: Current vs Best for {eval_episodes} games...", flush=True)
         wins = 0
+        draws = 0
+        losses = 0
         for i in range(1, eval_episodes + 1):
             sim = GameSimulator()
             state, _ = sim.reset()
@@ -341,8 +344,18 @@ class AITrainer:
                 action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("player"), mode='train')
                 enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=self.best_network)
                 state, _, _, _, done, info = sim.step_self_play(action, enemy_action)
-            if info.get("winner") == 1: wins += 1
-            if i % 100 == 0: print(f"[Eval] Progress: {i}/{eval_episodes}, Current Wins: {wins}", flush=True)
+            winner = info.get("winner")
+            if winner == 1:
+                wins += 1
+            elif winner == 0:
+                draws += 1
+            else:
+                losses += 1
+            if i % 100 == 0:
+                print(
+                    f"[Eval] Progress: {i}/{eval_episodes}, Wins: {wins}, Draws: {draws}, Losses: {losses}",
+                    flush=True
+                )
         
         win_rate = wins / eval_episodes
         promoted = win_rate >= self.replace_rate
@@ -358,8 +371,18 @@ class AITrainer:
         return promoted
 
     def train(self, episodes=1000, log_interval=10):
+        start_time = time.time()
         root_dir = os.path.abspath(os.path.join(os.path.dirname(self.model_path), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
+        total_wins = 0
+        total_draws = 0
+        total_losses = 0
+        interval_wins = 0
+        interval_draws = 0
+        interval_losses = 0
+        reward_window_sum = 0.0
+        total_loss = 0.0
+        loss_count = 0
 
         # 시작 전 미결된 승급전이 있는지 체크
         if self.needs_evaluation:
@@ -370,6 +393,7 @@ class AITrainer:
             total_episode = self.total_trained_episodes + 1
             if total_episode % 1000 != 0:
                 self.needs_evaluation = False
+            eval_triggered = False
 
             enemy_net = self._choose_enemy_network()
             sim = GameSimulator()
@@ -385,11 +409,26 @@ class AITrainer:
                 state, _, rew, _, done, info = sim.step_self_play(action, enemy_action)
                 rew_l.append(rew); don_l.append(done); ep_reward += rew
 
-            self.train_on_episode([{"states": obs_l, "actions": act_l, "log_probs": log_l, "values": val_l, "rewards": rew_l, "dones": don_l, "action_masks": msk_l}])
+            update_stats = self.train_on_episode([{"states": obs_l, "actions": act_l, "log_probs": log_l, "values": val_l, "rewards": rew_l, "dones": don_l, "action_masks": msk_l}])
             self.total_trained_episodes += 1
+            reward_window_sum += ep_reward
+            if isinstance(update_stats, dict):
+                total_loss += float(update_stats.get("loss", 0.0))
+                loss_count += 1
+            winner = info.get("winner", 0)
+            if winner == 1:
+                total_wins += 1
+                interval_wins += 1
+            elif winner == 0:
+                total_draws += 1
+                interval_draws += 1
+            else:
+                total_losses += 1
+                interval_losses += 1
             
             # 1000판 단위 처리
             if self.total_trained_episodes % 1000 == 0:
+                eval_triggered = True
                 print(f"[AITrainer] Reached {self.total_trained_episodes} episodes. Saving and starting evaluation...", flush=True)
                 
                 # 1. 체크포인트 보관 (회전 및 pending 저장)
@@ -412,9 +451,43 @@ class AITrainer:
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes)
 
             if ep % log_interval == 0:
-                print(json.dumps({"episode": ep, "total": self.total_trained_episodes, "reward": round(ep_reward, 2)}), flush=True)
+                interval_games = max(1, interval_wins + interval_draws + interval_losses)
+                total_games = max(1, total_wins + total_draws + total_losses)
+                avg_loss = total_loss / max(1, loss_count)
+                print(json.dumps({
+                    "episode": ep,
+                    "total": self.total_trained_episodes,
+                    "total_episode": self.total_trained_episodes,
+                    "reward": round(ep_reward, 2),
+                    "avg_reward": round(reward_window_sum / log_interval, 2),
+                    "avg_loss": round(avg_loss, 6),
+                    "winner": winner,
+                    "wins": total_wins,
+                    "draws": total_draws,
+                    "losses": total_losses,
+                    "win_rate": round(total_wins / total_games, 4),
+                    "draw_rate": round(total_draws / total_games, 4),
+                    "loss_rate": round(total_losses / total_games, 4),
+                    "interval_win_rate": round(interval_wins / interval_games, 4),
+                    "interval_draw_rate": round(interval_draws / interval_games, 4),
+                    "interval_loss_rate": round(interval_losses / interval_games, 4),
+                    "total_win_rate": round(total_wins / total_games, 4),
+                    "total_draw_rate": round(total_draws / total_games, 4),
+                    "total_loss_rate": round(total_losses / total_games, 4),
+                    "elapsed_time": round(time.time() - start_time, 2),
+                    "lr": round(float(getattr(self.network, "learning_rate", 0.0)), 8),
+                    "entropy_coef": round(float(getattr(self.network, "entropy_coef", 0.0)), 8),
+                    "eval_triggered": eval_triggered,
+                    "algo": "PPO"
+                }), flush=True)
+                interval_wins = interval_draws = interval_losses = 0
+                reward_window_sum = 0.0
+                total_loss = 0.0
+                loss_count = 0
             
-            if ep % 10 == 0: self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes)
+            if ep % 10 == 0:
+                self.save_model(self.model_path)
+                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes)
             gc.collect()
 
     def sync_to_github(self, root_dir, rel_model_path, ep):
@@ -422,7 +495,15 @@ class AITrainer:
             token = os.getenv("GITHUB_TOKEN")
             if not token: return
             push_url = f"https://warrior-0:{token.strip()}@github.com/warrior-0/autocardbattle.git"
-            subprocess.run(["git", "add", "."], cwd=root_dir, check=True)
+            model_abs_path = os.path.join(root_dir, rel_model_path)
+            if os.path.exists(model_abs_path):
+                subprocess.run(["git", "add", rel_model_path], cwd=root_dir, check=True)
+
+            checkpoint_dir = os.path.dirname(model_abs_path)
+            for cp in sorted(glob.glob(os.path.join(checkpoint_dir, "checkpoint_ep_*.json"))):
+                rel_cp = os.path.relpath(cp, root_dir)
+                subprocess.run(["git", "add", rel_cp], cwd=root_dir, check=True)
+
             res = subprocess.run(["git", "commit", "-m", f"chore: update model at {ep}"], cwd=root_dir, capture_output=True)
             if res.returncode == 0:
                 subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True)
