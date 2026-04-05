@@ -373,12 +373,12 @@ class AITrainer:
             done_list = []
             mask_list = []
 
-            state = simulator.get_state()
+            state, _ = simulator.reset() # reset() returns (player_state, enemy_state)
             done = False
             ep_reward = 0.0
 
             while not done:
-                valid_actions = simulator.get_valid_actions()
+                valid_actions = simulator.get_valid_actions_for("player")
                 action, action_idx, log_prob, val, mask = self.select_action(state, valid_actions, mode='train')
                 
                 obs_list.append(state)
@@ -387,10 +387,11 @@ class AITrainer:
                 value_list.append(val)
                 mask_list.append(mask)
 
-                enemy_valid = simulator.get_valid_actions()
+                enemy_valid = simulator.get_valid_actions_for("enemy")
                 enemy_action, _, _, _, _ = self.select_action(state, enemy_valid, mode='play', network_to_use=enemy_network)
                 
-                next_state, reward, done, info = simulator.step(action, enemy_action)
+                # step() returns (player_state, enemy_state, player_reward, enemy_reward, done, info)
+                next_state, _, reward, _, done, info = simulator.step(action, enemy_action)
                 reward_list.append(reward)
                 done_list.append(done)
                 state = next_state
