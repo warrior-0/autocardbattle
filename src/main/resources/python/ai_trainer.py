@@ -94,12 +94,11 @@ class AITrainer:
         # 기존 체크포인트 파일들을 검색하여 historical_networks에 로드
         self._load_historical_checkpoints()
         
-        # 만약 로드된 과거 모델이 없다면 현재 모델로 채움 (기존 로직 유지)
+        # 만약 로드된 과거 모델이 없다면 현재 모델로 채움
         if len(self.historical_networks) == 0:
             for _ in range(5):
                 self.historical_networks.append(self._clone_network(self.network))
         elif len(self.historical_networks) < 5:
-            # 부족한 만큼 현재 모델로 채움
             current_count = len(self.historical_networks)
             for _ in range(5 - current_count):
                 self.historical_networks.append(self._clone_network(self.network))
@@ -122,16 +121,10 @@ class AITrainer:
                 except ValueError:
                     continue
         
-        # 에피소드 순서대로 정렬 (오래된 것부터)
         checkpoints.sort()
         
-        # 최대 5개까지 로드 (최신 순으로 5개 또는 전체 중 균등하게 선택할 수 있으나, 여기서는 최신 순 5개)
-        # 만약 0번, 1000번 등 특정 모델을 꼭 포함하고 싶다면 로직을 조정할 수 있음
-        # 현재는 deque maxlen=5에 맞춰 마지막 5개를 로드
-        loaded_count = 0
         for ep, path in checkpoints[-5:]:
             try:
-                # 임시 네트워크 생성하여 로드
                 temp_net = self._clone_network(self.network)
                 with open(path, 'r') as f:
                     cp_data = json.load(f)
@@ -145,7 +138,6 @@ class AITrainer:
                 if state_dict:
                     temp_net.load_state_dict(state_dict, strict=True)
                     self.historical_networks.append(temp_net)
-                    loaded_count += 1
                     print(f"[AITrainer] Loaded historical checkpoint: {path} (ep {ep})", flush=True)
             except Exception as e:
                 print(f"[AITrainer] Failed to load historical checkpoint {path}: {e}", flush=True)
@@ -318,40 +310,31 @@ class AITrainer:
             return old_candidates[np.random.randint(len(old_candidates))]
         return self.previous_network
 
-    def _trim_old_checkpoints(self):
+    def _rotate_checkpoints(self):
+        """체크포인트 파일명을 밀어냅니다 (1000->2000, 2000->3000, ..., 5000 삭제)"""
         checkpoint_dir = os.path.dirname(self.model_path)
-        checkpoint_prefix = "checkpoint_ep_"
-        checkpoint_suffix = ".json"
-        if not os.path.isdir(checkpoint_dir):
-            return
-
-        checkpoints = []
-        for name in os.listdir(checkpoint_dir):
-            if name.startswith(checkpoint_prefix) and name.endswith(checkpoint_suffix):
-                try:
-                    ep = int(name[len(checkpoint_prefix):-len(checkpoint_suffix)])
-                    checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
-                except ValueError:
-                    continue
-
-        if len(checkpoints) <= self.max_checkpoints:
-            return
-
-        checkpoints.sort()
-        to_remove = checkpoints[:-self.max_checkpoints]
-        for ep, path in to_remove:
-            try:
-                os.remove(path)
-                print(f"[AITrainer] Removed old checkpoint: {path}", flush=True)
-            except Exception as e:
-                print(f"[AITrainer] Failed to remove checkpoint {path}: {e}", flush=True)
+        
+        # 5000 삭제
+        p5000 = os.path.join(checkpoint_dir, "checkpoint_ep_5000.json")
+        if os.path.exists(p5000):
+            os.remove(p5000)
+            print(f"[AITrainer] Removed old checkpoint: {p5000}", flush=True)
+            
+        # 4000 -> 5000, 3000 -> 4000, 2000 -> 3000, 1000 -> 2000
+        for ep in [4000, 3000, 2000, 1000]:
+            old_path = os.path.join(checkpoint_dir, f"checkpoint_ep_{ep}.json")
+            new_path = os.path.join(checkpoint_dir, f"checkpoint_ep_{ep + 1000}.json")
+            if os.path.exists(old_path):
+                os.rename(old_path, new_path)
+                print(f"[AITrainer] Rotated checkpoint: {old_path} -> {new_path}", flush=True)
 
     def _save_checkpoint(self, ep):
         checkpoint_dir = os.path.dirname(self.model_path)
-        checkpoint_name = f"checkpoint_ep_{ep}.json"
-        checkpoint_path = os.path.join(checkpoint_dir, checkpoint_name)
+        # 회전 먼저 수행
+        self._rotate_checkpoints()
+        # 항상 1000번으로 저장 (파일명은 밀어내기 방식이므로)
+        checkpoint_path = os.path.join(checkpoint_dir, "checkpoint_ep_1000.json")
         self.save_model(checkpoint_path)
-        self._trim_old_checkpoints()
 
     def train(self, episodes=1000, log_interval=10, eval_interval=1000):
         start_time = time.time()
@@ -394,15 +377,12 @@ class AITrainer:
                 value_list.append(val)
                 mask_list.append(mask)
 
-                # Enemy Turn
                 enemy_valid = simulator.get_valid_actions()
                 enemy_action, _, _, _, _ = self.select_action(state, enemy_valid, mode='play', network_to_use=enemy_network)
                 
                 next_state, reward, done, info = simulator.step(action, enemy_action)
-                
                 reward_list.append(reward)
                 done_list.append(done)
-                
                 state = next_state
                 ep_reward += reward
 
@@ -430,51 +410,44 @@ class AITrainer:
                 total_draws += 1
             
             self.eval_games += 1
+            total_episode = run_start_total_episode + ep
 
+            # 1000판 단위 즉시 승급전(Evaluation) 및 체크포인트 처리
             eval_triggered = False
             promoted = False
             gate_win_rate = 0.0
-            if self.eval_games >= self.eval_batch:
+            if total_episode % 1000 == 0:
                 eval_triggered = True
                 gate_win_rate = self.eval_wins / self.eval_games
                 if gate_win_rate >= self.replace_rate:
                     self.best_network = self._clone_network(self.network)
                     promoted = True
                 
-                eval_result = {"early_stopped": False, "early_stop_reason": ""}
-                played_games = self.eval_games
-                wins = self.eval_wins
-                losses = played_games - wins # Simplification for log
-                
                 print(json.dumps({
                     "eval_batch_result": {
-                        "batch_games": played_games,
-                        "batch_games_target": self.eval_batch,
-                        "batch_wins": wins,
-                        "batch_losses": losses,
-                        "batch_draws": played_games - wins - losses,
+                        "batch_games": self.eval_games,
+                        "batch_wins": self.eval_wins,
                         "gate_win_rate": round(gate_win_rate, 4),
-                        "replace_rate": self.replace_rate,
                         "best_model_replaced": promoted,
-                        "early_stopped": eval_result["early_stopped"],
-                        "early_stop_reason": eval_result["early_stop_reason"],
-                        "accum_games": self.eval_games,
-                        "accum_wins": self.eval_wins,
-                        "target_games": self.eval_total
+                        "total_episode": total_episode
                     }
                 }), flush=True)
                 self.best_eval_winrate = max(self.best_eval_winrate, gate_win_rate)
                 self.eval_games = 0
                 self.eval_wins = 0
 
-            total_episode = run_start_total_episode + ep
+                # 1000판 도달 시 체크포인트 회전 및 저장
+                self.total_trained_episodes = total_episode
+                self._save_checkpoint(total_episode)
+                if self.historical_networks:
+                    self.previous_network = self._clone_network(self.historical_networks[-1])
+                self.historical_networks.append(self._clone_network(self.network))
+                
+                # 모델 저장 및 GitHub 푸시
+                self.save_model(self.model_path)
+                self.sync_to_github(root_dir, rel_model_path, total_episode)
 
             if ep % log_interval == 0:
-                pending_gate_games = self.eval_games
-                pending_gate_win_rate = (self.eval_wins / pending_gate_games) if pending_gate_games > 0 else 0.0
-                if gate_win_rate == 0.0:
-                    gate_win_rate = pending_gate_win_rate
-
                 avg_loss = total_loss / loss_count if loss_count > 0 else 0.0
                 now = time.time()
                 log = {
@@ -487,81 +460,49 @@ class AITrainer:
                     "avg_reward": round(reward_window_sum / log_interval, 2),
                     "avg_loss": round(avg_loss, 6),
                     "elapsed_time": round(now - start_time, 2),
-                    "log_interval_seconds": round(now - start_time, 2),
                     "lr": round(self.network.learning_rate, 6),
                     "entropy_coef": round(self.network.entropy_coef, 6),
-                    "gate_win_rate": round(gate_win_rate, 4),
-                    "eval_games": self.eval_games,
                     "eval_triggered": eval_triggered,
                     "best_model_replaced": promoted,
-                    "approx_kl": round(update_stats["approx_kl"], 6),
-                    "kl_early_stop": bool(update_stats["early_stop"]),
-                    "best_opp_ratio": self.best_opponent_ratio,
-                    "prev_opp_ratio": self.previous_opponent_ratio,
-                    "random_old_opp_ratio": self.random_old_opponent_ratio,
-                    "best_eval_winrate": round(self.best_eval_winrate, 4),
                     "algo": "PPO"
                 }
                 print(json.dumps(log), flush=True)
-                last_log_time = now
                 total_loss = 0.0
                 loss_count = 0
                 reward_window_sum = 0.0
 
-            if total_episode % self.push_interval == 0:
+            if total_episode % self.push_interval == 0 and total_episode % 1000 != 0:
                 self.total_trained_episodes = total_episode
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, total_episode)
 
-            if total_episode % self.checkpoint_interval == 0:
-                self.total_trained_episodes = total_episode
-                self._save_checkpoint(total_episode)
-                if self.historical_networks:
-                    self.previous_network = self._clone_network(self.historical_networks[-1])
-                self.historical_networks.append(self._clone_network(self.network))
             gc.collect()
 
         self.total_trained_episodes = run_start_total_episode + episodes
-
-        duration = time.time() - start_time
-        print(f"[AITrainer] PPO training completed in {duration:.2f} seconds.", flush=True)
+        print(f"[AITrainer] PPO training completed.", flush=True)
 
     def sync_to_github(self, root_dir, rel_model_path, ep):
         try:
             print(f"[Git-Push] Attempting to push model at episode {ep}...", flush=True)
             git_dir = os.path.join(root_dir, ".git")
             if not os.path.isdir(git_dir):
-                print(f"[Git-Push] Skip: not a git repository at {root_dir}", flush=True)
                 return
 
             token = os.getenv("GITHUB_TOKEN")
             if token:
                 clean_token = token.strip()
                 push_url = f"https://warrior-0:{clean_token}@github.com/warrior-0/autocardbattle.git"
-                
-                # 1. Fetch 최신 상태
                 subprocess.run(["git", "fetch", push_url, "main"], cwd=root_dir, capture_output=True)
-                
-                # 2. 모델 파일 추가 및 커밋
-                subprocess.run(["git", "add", str(rel_model_path)], cwd=root_dir, check=True)
-                commit_res = subprocess.run(["git", "commit", "-m", f"chore: update trained model at episode {ep}"], cwd=root_dir, capture_output=True)
+                subprocess.run(["git", "add", "."], cwd=root_dir, check=True) # 모든 변경사항(체크포인트 포함) 추가
+                commit_res = subprocess.run(["git", "commit", "-m", f"chore: update model and checkpoints at episode {ep}"], cwd=root_dir, capture_output=True)
                 
                 if commit_res.returncode == 0:
-                    # 3. Pull with Rebase (충돌 시 로컬 모델 우선)
                     subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True)
-                    
-                    # 4. Push
                     push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
-                    
                     if push_res.returncode == 0:
-                        print(f"[Git-Push] Successfully pushed model to GitHub.", flush=True)
+                        print(f"[Git-Push] Successfully pushed to GitHub.", flush=True)
                     else:
-                        print(f"[Git-Push] Push failed: {push_res.stderr}. Aborting to avoid data loss.", flush=True)
                         subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
-                else:
-                    print(f"[Git-Push] Nothing to commit (model might be unchanged).", flush=True)
-            else:
-                print(f"[Git-Push] Error: GITHUB_TOKEN not found in environment.", flush=True)
         except Exception as e:
             print(f"[Git-Push] Error during GitHub sync: {e}", flush=True)
 
