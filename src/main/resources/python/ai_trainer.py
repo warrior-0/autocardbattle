@@ -62,28 +62,19 @@ class AITrainer:
         self.eval_batch = 1000
         self.eval_total = 1000
         self.eval_progress_log_interval = 10
-        self.replace_rate = 0.55
-        self.eval_interval = 100
+        self.replace_rate = 0.60
+        self.eval_interval = 1000
         self.eval_games = 0
         self.eval_wins = 0
 
         self.best_opponent_ratio = 0.2
         self.previous_opponent_ratio = 0.5
         self.random_old_opponent_ratio = 0.3
-
         self.best_eval_winrate = -1.0
 
         self.push_interval = 10
-        self.checkpoint_interval = 100
-
-        self.best_model_path = os.path.join(os.path.dirname(self.model_path), "best_model.json")
-        self.prev_model_paths = {
-            100: os.path.join(os.path.dirname(self.model_path), "model_prev_100.json"),
-            200: os.path.join(os.path.dirname(self.model_path), "model_prev_200.json"),
-            300: os.path.join(os.path.dirname(self.model_path), "model_prev_300.json"),
-            400: os.path.join(os.path.dirname(self.model_path), "model_prev_400.json"),
-            500: os.path.join(os.path.dirname(self.model_path), "model_prev_500.json"),
-        }
+        self.checkpoint_interval = 1000
+        self.max_checkpoints = 5
 
         self.total_trained_episodes = 0
 
@@ -92,12 +83,15 @@ class AITrainer:
         self.ppo_epochs = 4
         self.minibatch_size = 64
 
-        self.load_model(self.model_path)
-        self.best_network = self._clone_network(self.network)
         self.previous_network = self._clone_network(self.network)
-        self.historical_networks = deque(maxlen=10)
-        self._bootstrap_fixed_policy_files()
-        self._refresh_fixed_networks_from_files()
+        self.best_network = self._clone_network(self.network)
+        self.historical_networks = deque(maxlen=5)
+
+        self.load_model(self.model_path)
+        self.previous_network = self._clone_network(self.network)
+        self.best_network = self._clone_network(self.network)
+        for _ in range(5):
+            self.historical_networks.append(self._clone_network(self.network))
 
     def _clone_network(self, src_network):
         cloned = PPONetwork(
@@ -153,70 +147,6 @@ class AITrainer:
             print(f"[AITrainer] PPO model saved to {path}", flush=True)
         except Exception as e:
             print(f"[AITrainer] Failed to save model: {e}", flush=True)
-
-    def save_network_model(self, network, path, trained_episodes=None):
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            if trained_episodes is None:
-                trained_episodes = int(self.total_trained_episodes)
-            checkpoint = {
-                "algorithm": "PPO",
-                "policy_state_dict": network.state_dict(),
-                "state_dict": network.state_dict(),
-                "timestamp": time.time(),
-                "total_trained_episodes": int(trained_episodes)
-            }
-            with open(path, 'w') as f:
-                json.dump(checkpoint, f)
-            print(f"[AITrainer] PPO network snapshot saved to {path}", flush=True)
-        except Exception as e:
-            print(f"[AITrainer] Failed to save network snapshot: {e}", flush=True)
-
-    def _load_network_model(self, path, fallback_network):
-        loaded = self._clone_network(fallback_network)
-        if not os.path.exists(path):
-            return loaded
-        try:
-            with open(path, "r") as f:
-                checkpoint = json.load(f)
-            if isinstance(checkpoint, dict):
-                if "policy_state_dict" in checkpoint:
-                    loaded.load_state_dict(checkpoint["policy_state_dict"], strict=True)
-                elif "state_dict" in checkpoint:
-                    loaded.load_state_dict(checkpoint["state_dict"], strict=True)
-                elif "net.0.weight" in checkpoint:
-                    loaded.load_state_dict(checkpoint, strict=True)
-        except Exception as e:
-            print(f"[AITrainer] Failed to load network snapshot from {path}: {e}", flush=True)
-        return loaded
-
-    def _bootstrap_fixed_policy_files(self):
-        if not os.path.exists(self.best_model_path):
-            self.save_network_model(self.network, self.best_model_path)
-        if not os.path.exists(self.prev_model_paths[100]):
-            initial_prev_total = max(0, int(self.total_trained_episodes) - 100)
-            self.save_network_model(self.network, self.prev_model_paths[100], trained_episodes=initial_prev_total)
-
-    def _refresh_fixed_networks_from_files(self):
-        self.best_network = self._load_network_model(self.best_model_path, self.network)
-        self.previous_network = self._load_network_model(self.prev_model_paths[100], self.network)
-
-        self.historical_networks = deque(maxlen=10)
-        self.historical_networks.append(self.previous_network)
-        for delta in [200, 300, 400, 500]:
-            p = self.prev_model_paths[delta]
-            if os.path.exists(p):
-                self.historical_networks.append(self._load_network_model(p, self.previous_network))
-
-    def _rotate_previous_model_files(self):
-        for src_delta, dst_delta in [(400, 500), (300, 400), (200, 300), (100, 200)]:
-            src = self.prev_model_paths[src_delta]
-            dst = self.prev_model_paths[dst_delta]
-            if os.path.exists(src):
-                with open(src, "r") as f:
-                    data = json.load(f)
-                with open(dst, "w") as f:
-                    json.dump(data, f)
 
     def _action_to_index(self, action):
         if action == PASS_ACTION:
@@ -323,21 +253,43 @@ class AITrainer:
             return self.best_network
         if r < (self.best_opponent_ratio + self.previous_opponent_ratio):
             return self.previous_network
+        if r >= (self.best_opponent_ratio + self.previous_opponent_ratio + self.random_old_opponent_ratio):
+            return self.previous_network
 
         old_candidates = list(self.historical_networks)[:-1]
         if old_candidates:
             return old_candidates[np.random.randint(len(old_candidates))]
+        return self.previous_network
 
-        if self.previous_network is not None:
-            return self.previous_network
-        return self.best_network
+    def _trim_old_checkpoints(self):
+        checkpoint_dir = os.path.dirname(self.model_path)
+        checkpoint_prefix = "checkpoint_ep_"
+        checkpoint_suffix = ".json"
+        if not os.path.isdir(checkpoint_dir):
+            return
 
-    def _save_relative_history_models(self, previous_fixed_network):
-        self._rotate_previous_model_files()
-        prev_100_total = max(0, int(self.total_trained_episodes) - 100)
-        self.save_network_model(previous_fixed_network, self.prev_model_paths[100], trained_episodes=prev_100_total)
+        checkpoints = []
+        for name in os.listdir(checkpoint_dir):
+            if name.startswith(checkpoint_prefix) and name.endswith(checkpoint_suffix):
+                try:
+                    ep = int(name[len(checkpoint_prefix):-len(checkpoint_suffix)])
+                    checkpoints.append((ep, os.path.join(checkpoint_dir, name)))
+                except:
+                    pass
 
-    def evaluate_against_best(self, eval_games=1000):
+        checkpoints.sort()
+        while len(checkpoints) > self.max_checkpoints:
+            ep, path = checkpoints.pop(0)
+            if os.path.exists(path):
+                os.remove(path)
+
+    def _save_checkpoint(self, ep):
+        checkpoint_dir = os.path.dirname(self.model_path)
+        checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_ep_{ep}.json")
+        self.save_model(checkpoint_path)
+        self._trim_old_checkpoints()
+
+    def evaluate_against_previous(self, eval_games=64):
         eval_env = GameSimulator(dice_catalog=None, map_data=os.getenv("AUTOCARDBATTLE_MAP_DATA"))
         wins = 0
         losses = 0
@@ -371,6 +323,7 @@ class AITrainer:
             if game_index % self.eval_progress_log_interval == 0 or game_index == eval_games:
                 print(json.dumps({
                     "eval_progress": {
+                        "opponent": "best_model",
                         "played": game_index,
                         "total": eval_games,
                         "wins": wins,
@@ -405,11 +358,11 @@ class AITrainer:
                 self.load_model(self.model_path)
             except Exception as e:
                 print(f"[AITrainer] Could not load model with new state_size: {e}. Starting fresh.", flush=True)
-            self.best_network = self._clone_network(self.network)
             self.previous_network = self._clone_network(self.network)
-            self.historical_networks = deque(maxlen=10)
-            self._bootstrap_fixed_policy_files()
-            self._refresh_fixed_networks_from_files()
+            self.best_network = self._clone_network(self.network)
+            self.historical_networks = deque(maxlen=5)
+            for _ in range(5):
+                self.historical_networks.append(self._clone_network(self.network))
 
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
@@ -493,11 +446,39 @@ class AITrainer:
                 total_loss += update_stats["loss"]
                 loss_count += 1
 
-            total_episode = run_start_total_episode + ep
             promoted = False
-            batch_promoted = False
             gate_win_rate = 0.0
-            eval_triggered = (ep % self.eval_interval == 0)
+            eval_triggered = False
+            if ep % self.eval_interval == 0:
+                eval_triggered = True
+                wins, losses = self.evaluate_against_previous(self.eval_batch)
+                self.eval_games += self.eval_batch
+                self.eval_wins += wins
+                gate_win_rate = wins / max(1, (wins + losses))
+                if gate_win_rate >= self.replace_rate:
+                    self.best_network = self._clone_network(self.network)
+                    self.previous_network = self._clone_network(self.network)
+                    promoted = True
+                    self.save_model(os.path.join(os.path.dirname(self.model_path), "best_model.json"))
+                print(json.dumps({
+                    "eval_batch_result": {
+                        "batch_games": self.eval_batch,
+                        "batch_wins": wins,
+                        "batch_losses": losses,
+                        "batch_draws": self.eval_batch - wins - losses,
+                        "gate_win_rate": round(gate_win_rate, 4),
+                        "replace_rate": self.replace_rate,
+                        "best_model_replaced": promoted,
+                        "accum_games": self.eval_games,
+                        "accum_wins": self.eval_wins,
+                        "target_games": self.eval_total
+                    }
+                }), flush=True)
+                self.best_eval_winrate = max(self.best_eval_winrate, gate_win_rate)
+                self.eval_games = 0
+                self.eval_wins = 0
+
+            total_episode = run_start_total_episode + ep
 
             if ep % log_interval == 0:
                 pending_gate_games = self.eval_games
@@ -523,8 +504,7 @@ class AITrainer:
                     "gate_win_rate": round(gate_win_rate, 4),
                     "eval_games": self.eval_games,
                     "eval_triggered": eval_triggered,
-                    "batch_previous_model_promoted": batch_promoted,
-                    "previous_model_promoted": promoted,
+                    "best_model_replaced": promoted,
                     "approx_kl": round(update_stats["approx_kl"], 6),
                     "kl_early_stop": bool(update_stats["early_stop"]),
                     "best_opp_ratio": self.best_opponent_ratio,
@@ -546,41 +526,10 @@ class AITrainer:
 
             if total_episode % self.checkpoint_interval == 0:
                 self.total_trained_episodes = total_episode
-                previous_fixed_network = self._clone_network(self.network)
-                self.save_network_model(self.best_network, self.best_model_path)
-                self._save_relative_history_models(previous_fixed_network)
-                self._refresh_fixed_networks_from_files()
-                self.sync_to_github(root_dir, rel_model_path, total_episode)
-
-            if ep % self.eval_interval == 0:
-                wins, losses = self.evaluate_against_best(self.eval_batch)
-                self.eval_games += self.eval_batch
-                self.eval_wins += wins
-                batch_win_rate = wins / max(1, (wins + losses))
-                print(json.dumps({
-                    "eval_batch_result": {
-                        "batch_games": self.eval_batch,
-                        "batch_wins": wins,
-                        "batch_losses": losses,
-                        "batch_draws": self.eval_batch - wins - losses,
-                        "batch_win_rate": round(batch_win_rate, 4),
-                        "batch_previous_model_promoted": batch_promoted,
-                        "accum_games": self.eval_games,
-                        "accum_wins": self.eval_wins,
-                        "target_games": self.eval_total
-                    }
-                }), flush=True)
-                if self.eval_games >= self.eval_total:
-                    gate_win_rate = self.eval_wins / max(1, self.eval_games)
-                    if gate_win_rate > self.best_eval_winrate:
-                        self.best_eval_winrate = gate_win_rate
-                        self.save_network_model(self.best_network, self.best_model_path)
-                    if gate_win_rate >= self.replace_rate:
-                        self.best_network = self._clone_network(self.network)
-                        self.save_network_model(self.best_network, self.best_model_path)
-                        promoted = True
-                    self.eval_games = 0
-                    self.eval_wins = 0
+                self._save_checkpoint(total_episode)
+                if self.historical_networks:
+                    self.previous_network = self._clone_network(self.historical_networks[-1])
+                self.historical_networks.append(self._clone_network(self.network))
             gc.collect()
 
         self.total_trained_episodes = run_start_total_episode + episodes
@@ -605,34 +554,13 @@ class AITrainer:
                 subprocess.run(["git", "fetch", push_url, "main"], cwd=root_dir, capture_output=True)
                 
                 # 2. 모델 파일 추가 및 커밋
-                model_dir = os.path.dirname(rel_model_path)
-                extra_rel_paths = [
-                    os.path.join(model_dir, "best_model.json"),
-                    os.path.join(model_dir, "model_prev_100.json"),
-                    os.path.join(model_dir, "model_prev_200.json"),
-                    os.path.join(model_dir, "model_prev_300.json"),
-                    os.path.join(model_dir, "model_prev_400.json"),
-                    os.path.join(model_dir, "model_prev_500.json"),
-                ]
                 subprocess.run(["git", "add", str(rel_model_path)], cwd=root_dir, check=True)
-                for p in extra_rel_paths:
-                    abs_p = os.path.join(root_dir, p)
-                    if os.path.exists(abs_p):
-                        subprocess.run(["git", "add", p], cwd=root_dir, capture_output=True)
                 commit_res = subprocess.run(["git", "commit", "-m", f"chore: update trained model at episode {ep}"], cwd=root_dir, capture_output=True)
                 
                 if commit_res.returncode == 0:
-                    # 3. Rebase onto fetched remote main (충돌 시 안전 중단)
-                    rebase_res = subprocess.run(
-                        ["git", "rebase", "FETCH_HEAD"],
-                        cwd=root_dir,
-                        capture_output=True,
-                        text=True
-                    )
-                    if rebase_res.returncode != 0:
-                        print(f"[Git-Push] Rebase failed: {rebase_res.stderr}", flush=True)
-                        subprocess.run(["git", "rebase", "--abort"], cwd=root_dir, capture_output=True)
-                        return
+                    # 3. Pull with Rebase (충돌 시 로컬 모델 우선)
+                    # 이전에 성공했던 핵심 로직: rebase를 통해 히스토리를 깔끔하게 유지
+                    subprocess.run(["git", "pull", "--rebase", "-Xours", push_url, "main"], cwd=root_dir, capture_output=True)
                     
                     # 4. Push (Force push 제거)
                     push_res = subprocess.run(["git", "push", push_url, "main"], cwd=root_dir, capture_output=True, text=True)
