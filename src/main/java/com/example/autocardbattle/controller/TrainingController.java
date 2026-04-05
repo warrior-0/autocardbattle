@@ -40,4 +40,8 @@ public class TrainingController {
     public Map<String, Object> activateTrainingModel(@PathVariable String id) throws IOException {
         return trainingService.activateModel(id);
     }
+    @PostMapping("/{id}/stop")
+    public Map<String, Object> stopTrainingJob(@PathVariable String id) {
+        return trainingService.stopJob(id);
+    }
 }
