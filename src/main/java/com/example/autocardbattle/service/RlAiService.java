@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -28,8 +29,11 @@ public class RlAiService {
 
     @Value("${autocardbattle.ai.model.path:src/main/resources/python/q_policy.json}")
     private String defaultModelPath;
+    @Value("${autocardbattle.ai.best-model.path:}")
+    private String bestModelPath;
 
     private volatile PolicyModel activeModel;
+    private volatile long activeModelLastModified = -1L;
 
     public RlAiService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -37,24 +41,28 @@ public class RlAiService {
 
     @PostConstruct
     public void init() {
-        Path path = Path.of(defaultModelPath);
+        Path path = resolvePreferredModelPath();
         System.out.println("AI Model loading from: " + path.toAbsolutePath());
         try {
             if (path.toFile().exists()) {
                 activeModel = loadModel(path);
+                activeModelLastModified = getLastModified(path);
                 System.out.println("AI Model loaded successfully from " + path);
             } else {
                 System.err.println("AI Model file not found at " + path + ". AI will use random actions until a model is activated.");
                 activeModel = PolicyModel.empty(path);
+                activeModelLastModified = -1L;
             }
         } catch (Exception e) {
             System.err.println("Failed to load AI model: " + e.getMessage());
             activeModel = PolicyModel.empty(path);
+            activeModelLastModified = -1L;
         }
     }
 
     public synchronized void activateModel(Path modelPath) throws IOException {
         activeModel = loadModel(modelPath);
+        activeModelLastModified = getLastModified(modelPath);
     }
 
     public Map<String, Object> getActiveModelInfo() {
@@ -81,6 +89,8 @@ public class RlAiService {
             int humanHp,
             List<String> diceTypes
     ) {
+        refreshActiveModelIfNeeded();
+
         if (hand == null || hand.isEmpty()) {
             return Optional.empty();
         }
@@ -414,6 +424,68 @@ public class RlAiService {
             return -1;
         }
         return (y * GRID_SIZE) + x;
+    }
+
+    private Path resolvePreferredModelPath() {
+        Path fallbackPath = Path.of(defaultModelPath);
+        Path configuredBestPath = null;
+        if (bestModelPath != null && !bestModelPath.isBlank()) {
+            configuredBestPath = Path.of(bestModelPath.trim());
+        }
+        Path siblingBestPath = fallbackPath.getParent() == null
+                ? Path.of("best_model.json")
+                : fallbackPath.getParent().resolve("best_model.json");
+
+        if (configuredBestPath != null && Files.exists(configuredBestPath)) {
+            return configuredBestPath;
+        }
+        if (Files.exists(siblingBestPath)) {
+            return siblingBestPath;
+        }
+        return fallbackPath;
+    }
+
+    private long getLastModified(Path path) {
+        if (path == null || !Files.exists(path)) {
+            return -1L;
+        }
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (IOException e) {
+            return -1L;
+        }
+    }
+
+    private void refreshActiveModelIfNeeded() {
+        Path preferredPath = resolvePreferredModelPath();
+        long preferredLastModified = getLastModified(preferredPath);
+        PolicyModel current = activeModel;
+        Path currentPath = current == null ? null : current.path;
+
+        boolean pathChanged = currentPath == null || !currentPath.equals(preferredPath);
+        boolean modelUpdated = preferredLastModified > 0 && preferredLastModified != activeModelLastModified;
+        if (!pathChanged && !modelUpdated) {
+            return;
+        }
+
+        synchronized (this) {
+            PolicyModel latestCurrent = activeModel;
+            Path latestCurrentPath = latestCurrent == null ? null : latestCurrent.path;
+            boolean latestPathChanged = latestCurrentPath == null || !latestCurrentPath.equals(preferredPath);
+            boolean latestModelUpdated = preferredLastModified > 0 && preferredLastModified != activeModelLastModified;
+            if (!latestPathChanged && !latestModelUpdated) {
+                return;
+            }
+            try {
+                if (Files.exists(preferredPath)) {
+                    activeModel = loadModel(preferredPath);
+                    activeModelLastModified = preferredLastModified;
+                    System.out.println("AI Model auto-switched to: " + preferredPath.toAbsolutePath());
+                }
+            } catch (Exception e) {
+                System.err.println("AI Model auto-switch failed: " + e.getMessage());
+            }
+        }
     }
 
     private PolicyModel loadModel(Path path) throws IOException {
