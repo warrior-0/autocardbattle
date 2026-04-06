@@ -222,7 +222,9 @@ class GameSimulator:
 
         self.player_deck, self.enemy_deck = self._build_self_play_decks()
 
-        self.revealed_enemy_tiles = set() # 전투 전까지 적 유닛 정보를 숨기기 위한 세트
+        # 전투 전까지 상대의 신규 배치를 숨기기 위한 시야 정보(라운드 경계에서만 갱신)
+        self.revealed_enemy_tiles = set()
+        self.revealed_player_tiles = set()
 
         self.player_hand: List[str] = []
         self.enemy_hand: List[str] = []
@@ -454,8 +456,9 @@ class GameSimulator:
         return winner, survivors, logs, remaining_hp, initial_hp_sum
 
     def _resolve_round(self) -> Tuple[int, Dict[str, float]]:
-        # 전투가 발생했으므로, 적 보드의 모든 유닛을 공개 상태로 전환
+        # 전투가 발생했으므로, 양측 보드의 상태를 라운드 종료 시점 정보로 공개
         self.revealed_enemy_tiles.update(self.enemy_board.keys())
+        self.revealed_player_tiles.update(self.player_board.keys())
         winner, survivors, logs, remaining_hp, initial_hp_sum = self._simulate_combat(self.player_board, self.enemy_board)
         if winner == 1: self.enemy_hp -= 1
         elif winner == -1: self.player_hp -= 1
@@ -545,7 +548,7 @@ class GameSimulator:
             else: encoded.append(0)
         return encoded
 
-    def _encode_board_types(self, board: Dict[int, Placement], is_enemy_board: bool = False) -> np.ndarray:
+    def _encode_board_types(self, board: Dict[int, Placement], revealed_tiles: Optional[set[int]] = None) -> np.ndarray:
         # [최적화] numpy 벡터화 (IndexError 방지)
         arr = np.zeros(TOTAL_TILES, dtype=np.int32)
         if board:
@@ -555,9 +558,9 @@ class GameSimulator:
             valid_indices = indices[valid_mask]
             
             if len(valid_indices) > 0:
-                if is_enemy_board:
-                    # 공개된 적 유닛만 포함
-                    revealed_indices = [idx for idx in valid_indices if idx in self.revealed_enemy_tiles]
+                if revealed_tiles is not None:
+                    # 공개된 상대 유닛만 포함
+                    revealed_indices = [idx for idx in valid_indices if idx in revealed_tiles]
                     types = [board[idx].dice_type for idx in revealed_indices]
                     valid_indices = np.array(revealed_indices, dtype=np.int32)
                 else:
@@ -570,7 +573,7 @@ class GameSimulator:
                 arr[valid_indices] = type_indices
         return arr
 
-    def _encode_board_levels(self, board: Dict[int, Placement], is_enemy_board: bool = False) -> np.ndarray:
+    def _encode_board_levels(self, board: Dict[int, Placement], revealed_tiles: Optional[set[int]] = None) -> np.ndarray:
         # [최적화] numpy 벡터화 (IndexError 방지)
         arr = np.zeros(TOTAL_TILES, dtype=np.int32)
         if board:
@@ -580,9 +583,9 @@ class GameSimulator:
             valid_indices = indices[valid_mask]
             
             if len(valid_indices) > 0:
-                if is_enemy_board:
-                    # 공개된 적 유닛만 포함
-                    revealed_indices = [idx for idx in valid_indices if idx in self.revealed_enemy_tiles]
+                if revealed_tiles is not None:
+                    # 공개된 상대 유닛만 포함
+                    revealed_indices = [idx for idx in valid_indices if idx in revealed_tiles]
                     levels = [board[idx].level for idx in revealed_indices]
                     valid_indices = np.array(revealed_indices, dtype=np.int32)
                 else:
@@ -611,15 +614,15 @@ class GameSimulator:
         
         # 3. 보드 정보 (256개)
         if is_player:
-            own_types = self._encode_board_types(self.player_board, False)
-            own_lvls = self._encode_board_levels(self.player_board, False)
-            opp_types = self._encode_board_types(self.enemy_board, True)
-            opp_lvls = self._encode_board_levels(self.enemy_board, True)
+            own_types = self._encode_board_types(self.player_board)
+            own_lvls = self._encode_board_levels(self.player_board)
+            opp_types = self._encode_board_types(self.enemy_board, self.revealed_enemy_tiles)
+            opp_lvls = self._encode_board_levels(self.enemy_board, self.revealed_enemy_tiles)
         else:
-            own_types = self._encode_board_types(self.enemy_board, False)
-            own_lvls = self._encode_board_levels(self.enemy_board, False)
-            opp_types = self._encode_board_types(self.player_board, True)
-            opp_lvls = self._encode_board_levels(self.player_board, True)
+            own_types = self._encode_board_types(self.enemy_board)
+            own_lvls = self._encode_board_levels(self.enemy_board)
+            opp_types = self._encode_board_types(self.player_board, self.revealed_player_tiles)
+            opp_lvls = self._encode_board_levels(self.player_board, self.revealed_player_tiles)
             
         # 4. 핸드 정보 (가변적이지만 벡터화)
         hand = self.player_hand if is_player else self.enemy_hand
