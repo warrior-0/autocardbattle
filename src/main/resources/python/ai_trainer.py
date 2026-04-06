@@ -78,12 +78,13 @@ class AITrainer:
         # historical_networks는 체크포인트 1000~5000 (최소 1000판 격차 확보된 모델들)
         self.historical_networks = deque(maxlen=5)
 
-        # 0번 학습된 초기 모델 상태 보관 (0~1999판 구간에서 적으로 사용)
+        # 0번 학습된 초기 모델 상태 보관 (0~1999판 구에서 적으로 사용)
         self.initial_network = self._clone_network(self.network)
 
         self.load_model(self.model_path)
         self._apply_hyperparam_schedule()
         self._load_best_model_if_exists()
+        self._ensure_best_model_initialized()
         self.training_map_pool = self._load_training_map_pool()
         self.map_rotation_index = self.total_trained_episodes % max(1, len(self.training_map_pool))
         self._load_or_init_pending_checkpoint()
@@ -128,6 +129,16 @@ class AITrainer:
         except Exception as e:
             print(f"[AITrainer] Failed to save best model: {e}", flush=True)
             return False
+
+
+    def _ensure_best_model_initialized(self):
+        best_path = self._best_model_path()
+        if os.path.exists(best_path):
+            return
+
+        self.best_network = self._clone_network(self.network)
+        if self._save_best_model():
+            print("[AITrainer] Initialized best_model.json from current model (episode 0 baseline).", flush=True)
 
     def _load_training_map_pool(self):
         """
@@ -431,6 +442,7 @@ class AITrainer:
 
     def evaluate_model(self, eval_episodes=1000):
         """별도의 승급전(Evaluation)을 수행합니다. (학습 없음)"""
+        self._load_best_model_if_exists()
         print(f"[AITrainer] Starting evaluation: Current vs Best for {eval_episodes} games...", flush=True)
         wins = 0
         draws = 0
@@ -451,7 +463,7 @@ class AITrainer:
                 draws += 1
             else:
                 losses += 1
-            if i % 100 == 0:
+            if i % 10 == 0:
                 print(
                     f"[Eval] Progress: {i}/{eval_episodes}, Wins: {wins}, Draws: {draws}, Losses: {losses}",
                     flush=True
@@ -490,6 +502,10 @@ class AITrainer:
         weight_delta_sum = 0.0
         pending_trajectories = []
         episodes_since_update = 0
+
+        # 학습 0판 기준 best_model을 먼저 GitHub에 반영
+        if self.total_trained_episodes == 0:
+            self.sync_to_github(root_dir, rel_model_path, 0, include_best_model=True)
 
         # 시작 전 미결된 승급전이 있는지 체크
         if self.needs_evaluation:
@@ -565,32 +581,7 @@ class AITrainer:
                 total_losses += 1
                 interval_losses += 1
 
-            # 1000판 단위 처리
-            if self.total_trained_episodes % 1000 == 0:
-                flush_batch_if_needed(force=True)
-                eval_triggered = True
-                print(f"[AITrainer] Reached {self.total_trained_episodes} episodes. Saving and starting evaluation...", flush=True)
-
-                # 1. 체크포인트 보관 (회전 및 pending 저장)
-                self._save_checkpoint(self.total_trained_episodes)
-
-                # 2. 현재 모델 저장 및 승급전 플래그 설정
-                self.needs_evaluation = True
-                self.save_model(self.model_path)
-
-                # 3. 승급전 수행 (독립적 1000판)
-                promoted = self.evaluate_model()
-
-                # 4. historical_networks 갱신 및 적 후보군 업데이트
-                # (이제 historical_networks에는 pending을 제외한 1000~5000 모델만 로드됨)
-                self._load_historical_checkpoints()
-                self._update_enemy_candidates()
-
-                # 5. 최종 결과 저장 및 GitHub 푸시
-                self.save_model(self.model_path)
-                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=promoted)
-            else:
-                flush_batch_if_needed(force=False)
+            eval_triggered = (self.total_trained_episodes % 1000 == 0)
 
             if ep % log_interval == 0:
                 total_games = max(1, total_wins + total_draws + total_losses)
@@ -623,6 +614,33 @@ class AITrainer:
                 total_kl = 0.0
                 kl_count = 0
                 weight_delta_sum = 0.0
+
+            # 1000판 단위 처리
+            if self.total_trained_episodes % 1000 == 0:
+                flush_batch_if_needed(force=True)
+                print(f"[AITrainer] Reached {self.total_trained_episodes} episodes. Saving and starting evaluation...", flush=True)
+
+                # 1. 체크포인트 보관 (회전 및 pending 저장)
+                self._save_checkpoint(self.total_trained_episodes)
+
+                # 2. 현재 모델 저장 및 승급전 플래그 설정
+                self.needs_evaluation = True
+                self.save_model(self.model_path)
+                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=False)
+
+                # 3. 승급전 행 (독립적 1000판)
+                promoted = self.evaluate_model()
+
+                # 4. historical_networks 갱신 및 적 후보군 업데이트
+                # (이제 historical_networks에는 pending을 제외한 1000~5000 모델만 로드됨)
+                self._load_historical_checkpoints()
+                self._update_enemy_candidates()
+
+                # 5. 최종 결과 저장 및 GitHub 푸시
+                self.save_model(self.model_path)
+                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=promoted)
+            else:
+                flush_batch_if_needed(force=False)
 
             if ep % update_batch_episodes == 0:
                 flush_batch_if_needed(force=True)
