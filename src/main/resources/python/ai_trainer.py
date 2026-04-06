@@ -9,7 +9,7 @@ import shutil
 import glob
 from collections import deque
 from ai_models import PPONetwork
-from game_simulator import GameSimulator, PASS_ACTION, MAX_ACTIONS_PER_TURN
+from game_simulator import GameSimulator, PASS_ACTION, MAX_ACTIONS_PER_TURN, STATE_SIZE
 
 _numba_spec = importlib.util.find_spec("numba")
 if _numba_spec is not None:
@@ -39,7 +39,7 @@ def _build_returns_advantages_numba(rewards, values, dones, gamma, gae_lambda):
 
 
 class AITrainer:
-    def __init__(self, model_path, state_size=333, action_size=129, learning_rate=0.0003):
+    def __init__(self, model_path, state_size=STATE_SIZE, action_size=129, learning_rate=0.0003):
         self.model_path = model_path
         self.state_size = state_size
         self.action_size = action_size
