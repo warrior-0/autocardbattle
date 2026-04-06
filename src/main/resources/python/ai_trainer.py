@@ -81,6 +81,8 @@ class AITrainer:
         self.initial_network = self._clone_network(self.network)
 
         self.load_model(self.model_path)
+        self.training_map_pool = self._load_training_map_pool()
+        self.map_rotation_index = self.total_trained_episodes % max(1, len(self.training_map_pool))
         self._load_or_init_pending_checkpoint()
         
         # 체크포인트 로드 (기존 파일들 로드)
@@ -88,6 +90,40 @@ class AITrainer:
 
         # 대전 상대로 쓸 '격차가 유지된 모델'들을 설정
         self._update_enemy_candidates()
+
+    def _load_training_map_pool(self):
+        """
+        학습용 맵 풀 로드 규칙:
+        1) AUTOCARDBATTLE_MAP_POOL_JSON이 있으면 JSON 배열로 로드
+        2) 없으면 AUTOCARDBATTLE_MAP_DATA 단일 맵 사용
+        3) 둘 다 없으면 GameSimulator 기본 맵 사용
+        """
+        env_pool = os.getenv("AUTOCARDBATTLE_MAP_POOL_JSON")
+        if env_pool:
+            try:
+                parsed = json.loads(env_pool)
+                if isinstance(parsed, list):
+                    cleaned = [str(m).strip() for m in parsed if str(m).strip()]
+                    if cleaned:
+                        print(f"[AITrainer] Loaded map pool: {len(cleaned)} maps.", flush=True)
+                        return cleaned
+            except Exception as e:
+                print(f"[AITrainer] Failed to parse AUTOCARDBATTLE_MAP_POOL_JSON: {e}", flush=True)
+
+        single_map = os.getenv("AUTOCARDBATTLE_MAP_DATA")
+        if single_map and single_map.strip():
+            print("[AITrainer] Loaded single map from AUTOCARDBATTLE_MAP_DATA.", flush=True)
+            return [single_map.strip()]
+
+        print("[AITrainer] No map pool provided. Using GameSimulator default map.", flush=True)
+        return []
+
+    def _next_training_map_data(self):
+        if not self.training_map_pool:
+            return None
+        selected = self.training_map_pool[self.map_rotation_index % len(self.training_map_pool)]
+        self.map_rotation_index = (self.map_rotation_index + 1) % len(self.training_map_pool)
+        return selected
 
     def _has_formal_checkpoints(self):
         return len(self.historical_networks) > 0
@@ -259,7 +295,7 @@ class AITrainer:
         if r < 0.7:
             return self.previous_network
                 
-        # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜 선택
+        # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜덤 선택
         if self.other_historical_candidates:
             return self.random_choice(self.other_historical_candidates)
             
@@ -396,7 +432,8 @@ class AITrainer:
             eval_triggered = False
 
             enemy_net = self._choose_enemy_network()
-            sim = GameSimulator()
+            map_data = self._next_training_map_data()
+            sim = GameSimulator(map_data=map_data)
             obs_l, act_l, log_l, val_l, rew_l, don_l, msk_l = [], [], [], [], [], [], []
             state, _ = sim.reset()
             done = False
