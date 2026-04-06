@@ -271,13 +271,6 @@ public class BattleService {
                 state.readyUsers.add(msg.getSender());
             }
 
-            if (state.isAiMatch() && !isAiSender(state, msg.getSender())
-                    && state.readyUsers.contains(state.humanUid)
-                    && !state.readyUsers.contains(state.aiUid)) {
-                executeAiTurn(roomId, state);
-                return null;
-            }
-
             if (state.readyUsers.size() >= 2) {
                 processBattleResult(state, roomId);
             } else if (state.readyUsers.contains(msg.getSender()) && !isAiSender(state, msg.getSender())) {
@@ -455,23 +448,46 @@ public class BattleService {
         if (hand.isEmpty()) {
             return null;
         }
+
+        String opponentUid = state.roundStartPlacements.keySet().stream()
+                .filter(uid -> !uid.equals(state.aiUid))
+                .findFirst()
+                .orElse(null);
+        if (opponentUid == null) {
+            opponentUid = state.placements.keySet().stream()
+                    .filter(uid -> !uid.equals(state.aiUid))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (opponentUid == null) {
+            opponentUid = state.playerHps.keySet().stream()
+                    .filter(uid -> !uid.equals(state.aiUid))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (opponentUid == null && state.humanUid != null && !state.humanUid.equals(state.aiUid)) {
+            opponentUid = state.humanUid;
+        }
+
         // 핵심: AI는 "이번 라운드에 새로 배치된 인간 정보"를 보지 못하고,
         // 라운드 시작 시점(이전 라운드까지 확정된) 배치 정보만 참조합니다.
-        List<BattleMessage> humanPlacements = state.roundStartPlacements.getOrDefault(state.humanUid, List.of());
+        List<BattleMessage> opponentPlacements = opponentUid == null
+                ? List.of()
+                : state.roundStartPlacements.getOrDefault(opponentUid, List.of());
         int aiActionsUsed = state.turnActionCounts.getOrDefault(state.aiUid, 0);
         int aiHp = state.playerHps.getOrDefault(state.aiUid, 5);
-        int humanHp = state.playerHps.getOrDefault(state.humanUid, 5);
+        int opponentHp = opponentUid == null ? 5 : state.playerHps.getOrDefault(opponentUid, 5);
         
         return rlAiService.chooseAction(
             state,
             roomId,
             hand,
             aiPlacements,
-            humanPlacements,
+            opponentPlacements,
             aiTiles,
             aiActionsUsed,
             aiHp,
-            humanHp,
+            opponentHp,
             diceTypes
         ).orElse(null);
     }
@@ -616,7 +632,7 @@ public class BattleService {
                 break;
             }
 
-            // [지연 반영] 데미지 큐를 관리기 위한 리스트 (도착 시간, 대상, 데미지 양)
+            // [지연 반영] 데미지 큐를 관리하기 위한 리스트 (도착 시간, 대상, 데미지 양)
             final int PROJECTILE_DELAY = 300;
             
             // AbilityHandler에서 공통으로 사용하는 임시 데미지 누적기 (매 틱 초기화)
