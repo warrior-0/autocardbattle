@@ -186,7 +186,7 @@ class AITrainer:
         """
         # 0~1999판 구간: 적은 항상 0번 학습된 초기 모델
         if not self._has_formal_checkpoints():
-            # 정식 체크포인트가 없으면 pending 모델만 상대
+            # 정식 체크포인트가 없면 pending 모델만 상대
             self.previous_network = self._clone_network(self.pending_network)
             self.other_historical_candidates = []
         elif self.total_trained_episodes < 2000:
