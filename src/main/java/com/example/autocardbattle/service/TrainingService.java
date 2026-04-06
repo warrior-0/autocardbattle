@@ -89,10 +89,10 @@ public class TrainingService {
 
     private Map<String, Object> resumeTraining(String jobId, int episodes, int logInterval) throws IOException {
         Path pythonDir = Path.of("src", "main", "resources", "python");
-        // [수] 모든 학습 결과가 하나의 파일에 덮어씌워지도록 q_policy.json 직접 사용합니다.
+        // [수] 모든 학습 결과가 하나의 파일에 덮어씌워지도록 q_policy.json을 직접 사용합니다.
         // 이를 통해 GitHub에 중복 파일이 쌓이는 것을 방지하고 최신 모델만 유지합니다.
         Path modelPath = pythonDir.resolve("q_policy.json");
-        Path stableModelPath = pythonDir.resolve("q_policy.json");
+        Path stableModelPath = pythonDir.resolve("q_policy_stable.json");
         Path metaPath = pythonDir.resolve("trained_models").resolve("meta").resolve(jobId + ".json");
         
         Files.createDirectories(modelPath.getParent());
