@@ -278,9 +278,9 @@ class PPONetwork:
                 entropy = -np.mean(np.sum(probs * np.log(probs + 1e-8), axis=1))
                 loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
 
-                active = unclipped <= clipped
+                use_unclipped = unclipped <= clipped
                 dL_dlogp = np.zeros(bs, dtype=np.float32)
-                dL_dlogp[active] = -(adv[active] * ratio[active]) / bs
+                dL_dlogp[use_unclipped] = -(adv[use_unclipped] * ratio[use_unclipped]) / bs
 
                 one_hot = np.zeros_like(probs)
                 one_hot[np.arange(bs), a_idx] = 1.0
