@@ -597,7 +597,7 @@ class AITrainer:
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
                 avg_kl = total_kl / max(1, kl_count)
-                avg_weight_delta = weight_delta_sum / max(1, window_size)
+                avg_weight_delta = weight_delta_sum / max(1, loss_count)
 
                 print(json.dumps({
                     "episode": ep,
