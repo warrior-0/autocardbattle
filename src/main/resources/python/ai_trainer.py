@@ -56,6 +56,7 @@ class AITrainer:
         )
         self.base_lr = 3e-4
         self.min_lr = 1e-5
+        self.lr_decay = 0.9997
         self.base_entropy_coef = 0.01
         self.min_entropy_coef = 0.001
         self.entropy_decay = 0.9997
@@ -81,6 +82,7 @@ class AITrainer:
         self.initial_network = self._clone_network(self.network)
 
         self.load_model(self.model_path)
+        self._apply_hyperparam_schedule()
         self._load_best_model_if_exists()
         self.training_map_pool = self._load_training_map_pool()
         self.map_rotation_index = self.total_trained_episodes % max(1, len(self.training_map_pool))
@@ -218,7 +220,7 @@ class AITrainer:
 
     def _update_enemy_candidates(self):
         """
-        대전 상대로 쓸 모델들을 현재 시점보다 최소 1000판 이전의 것으로 고정하여 업데이트합니다.
+        대전 상대로 쓸 모델들을 현재 시점보다 최소 1000판 이전의 것으로 고정하여 업데이트니다.
         """
         # 0~1999판 구간: 적은 항상 0번 학습된 초기 모델
         if not self._has_formal_checkpoints():
@@ -244,6 +246,25 @@ class AITrainer:
         cloned = PPONetwork(self.state_size, self.action_size, learning_rate=src_network.learning_rate)
         cloned.load_state_dict(src_network.state_dict(), strict=True)
         return cloned
+
+    def _network_l2_norm(self):
+        return float(np.sqrt(
+            np.sum(self.network.w1 ** 2) +
+            np.sum(self.network.b1 ** 2) +
+            np.sum(self.network.w2 ** 2) +
+            np.sum(self.network.b2 ** 2) +
+            np.sum(self.network.w3 ** 2) +
+            np.sum(self.network.b3 ** 2) +
+            np.sum(self.network.vw ** 2) +
+            np.sum(self.network.vb ** 2)
+        ))
+
+    def _apply_hyperparam_schedule(self):
+        decay_steps = max(0, int(self.total_trained_episodes))
+        scheduled_lr = self.base_lr * (self.lr_decay ** decay_steps)
+        scheduled_entropy = self.base_entropy_coef * (self.entropy_decay ** decay_steps)
+        self.network.learning_rate = float(max(self.min_lr, scheduled_lr))
+        self.network.entropy_coef = float(max(self.min_entropy_coef, scheduled_entropy))
 
     def load_model(self, path):
         if os.path.exists(path):
@@ -457,6 +478,9 @@ class AITrainer:
         reward_window_sum = 0.0
         total_loss = 0.0
         loss_count = 0
+        total_kl = 0.0
+        kl_count = 0
+        weight_delta_sum = 0.0
 
         # 시작 전 미결된 승급전이 있는지 체크
         if self.needs_evaluation:
@@ -486,12 +510,18 @@ class AITrainer:
                 state, _, rew, _, done, info = sim.step_self_play(action, enemy_action)
                 rew_l.append(rew); don_l.append(done); ep_reward += rew
 
+            before_norm = self._network_l2_norm()
             update_stats = self.train_on_episode([{"states": obs_l, "actions": act_l, "log_probs": log_l, "values": val_l, "rewards": rew_l, "dones": don_l, "action_masks": msk_l}])
+            after_norm = self._network_l2_norm()
+            weight_delta_sum += abs(after_norm - before_norm)
             self.total_trained_episodes += 1
+            self._apply_hyperparam_schedule()
             reward_window_sum += ep_reward
             if isinstance(update_stats, dict):
                 total_loss += float(update_stats.get("loss", 0.0))
                 loss_count += 1
+                total_kl += float(update_stats.get("approx_kl", 0.0))
+                kl_count += 1
             winner = info.get("winner", 0)
             if winner == 1:
                 total_wins += 1
@@ -528,9 +558,10 @@ class AITrainer:
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=promoted)
 
             if ep % log_interval == 0:
-                interval_games = max(1, interval_wins + interval_draws + interval_losses)
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
+                avg_kl = total_kl / max(1, kl_count)
+                avg_weight_delta = weight_delta_sum / max(1, log_interval)
                 print(json.dumps({
                     "episode": ep,
                     "total": self.total_trained_episodes,
@@ -538,6 +569,8 @@ class AITrainer:
                     "reward": round(ep_reward, 2),
                     "avg_reward": round(reward_window_sum / log_interval, 2),
                     "avg_loss": round(avg_loss, 6),
+                    "avg_kl": round(avg_kl, 6),
+                    "avg_weight_delta_l2": round(avg_weight_delta, 8),
                     "winner": winner,
                     "wins": total_wins,
                     "draws": total_draws,
@@ -545,15 +578,9 @@ class AITrainer:
                     "win_rate": round(total_wins / total_games, 4),
                     "draw_rate": round(total_draws / total_games, 4),
                     "loss_rate": round(total_losses / total_games, 4),
-                    "interval_win_rate": round(interval_wins / interval_games, 4),
-                    "interval_draw_rate": round(interval_draws / interval_games, 4),
-                    "interval_loss_rate": round(interval_losses / interval_games, 4),
-                    "total_win_rate": round(total_wins / total_games, 4),
-                    "total_draw_rate": round(total_draws / total_games, 4),
-                    "total_loss_rate": round(total_losses / total_games, 4),
+                    "learning_rate": round(float(self.network.learning_rate), 8),
+                    "entropy_coef": round(float(self.network.entropy_coef), 8),
                     "elapsed_time": round(time.time() - start_time, 2),
-                    "lr": round(float(getattr(self.network, "learning_rate", 0.0)), 8),
-                    "entropy_coef": round(float(getattr(self.network, "entropy_coef", 0.0)), 8),
                     "eval_triggered": eval_triggered,
                     "algo": "PPO"
                 }), flush=True)
@@ -561,6 +588,9 @@ class AITrainer:
                 reward_window_sum = 0.0
                 total_loss = 0.0
                 loss_count = 0
+                total_kl = 0.0
+                kl_count = 0
+                weight_delta_sum = 0.0
             
             if ep % 10 == 0:
                 self.save_model(self.model_path)
