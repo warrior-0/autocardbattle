@@ -373,7 +373,8 @@ class AITrainer:
         draws = 0
         losses = 0
         for i in range(1, eval_episodes + 1):
-            sim = GameSimulator()
+            map_data = self._next_training_map_data()
+            sim = GameSimulator(map_data=map_data)
             state, _ = sim.reset()
             done = False
             while not done:
