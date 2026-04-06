@@ -159,8 +159,7 @@ class AITrainer:
     def _next_training_map_data(self):
         if not self.training_map_pool:
             return None
-        selected = self.training_map_pool[self.map_rotation_index % len(self.training_map_pool)]
-        self.map_rotation_index = (self.map_rotation_index + 1) % len(self.training_map_pool)
+        selected = self.training_map_pool[np.random.randint(len(self.training_map_pool))]
         return selected
 
     def _has_formal_checkpoints(self):
@@ -469,6 +468,7 @@ class AITrainer:
         start_time = time.time()
         root_dir = os.path.abspath(os.path.join(os.path.dirname(self.model_path), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
+        update_batch_episodes = max(1, int(os.getenv("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES", "10")))
         total_wins = 0
         total_draws = 0
         total_losses = 0
@@ -481,6 +481,8 @@ class AITrainer:
         total_kl = 0.0
         kl_count = 0
         weight_delta_sum = 0.0
+        pending_trajectories = []
+        episodes_since_update = 0
 
         # 시작 전 미결된 승급전이 있는지 체크
         if self.needs_evaluation:
@@ -488,6 +490,27 @@ class AITrainer:
             promoted = self.evaluate_model()
             if promoted:
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=True)
+
+        def flush_batch_if_needed(force=False):
+            nonlocal total_loss, loss_count, total_kl, kl_count, weight_delta_sum, pending_trajectories, episodes_since_update
+            if not pending_trajectories:
+                return
+            if not force and episodes_since_update < update_batch_episodes:
+                return
+
+            before_norm = self._network_l2_norm()
+            update_stats = self.train_on_episode(pending_trajectories)
+            after_norm = self._network_l2_norm()
+            weight_delta_sum += abs(after_norm - before_norm)
+
+            if isinstance(update_stats, dict):
+                total_loss += float(update_stats.get("loss", 0.0))
+                loss_count += 1
+                total_kl += float(update_stats.get("approx_kl", 0.0))
+                kl_count += 1
+
+            pending_trajectories = []
+            episodes_since_update = 0
 
         for ep in range(1, episodes + 1):
             total_episode = self.total_trained_episodes + 1
@@ -510,18 +533,20 @@ class AITrainer:
                 state, _, rew, _, done, info = sim.step_self_play(action, enemy_action)
                 rew_l.append(rew); don_l.append(done); ep_reward += rew
 
-            before_norm = self._network_l2_norm()
-            update_stats = self.train_on_episode([{"states": obs_l, "actions": act_l, "log_probs": log_l, "values": val_l, "rewards": rew_l, "dones": don_l, "action_masks": msk_l}])
-            after_norm = self._network_l2_norm()
-            weight_delta_sum += abs(after_norm - before_norm)
+            pending_trajectories.append({
+                "states": obs_l,
+                "actions": act_l,
+                "log_probs": log_l,
+                "values": val_l,
+                "rewards": rew_l,
+                "dones": don_l,
+                "action_masks": msk_l
+            })
+            episodes_since_update += 1
             self.total_trained_episodes += 1
             self._apply_hyperparam_schedule()
             reward_window_sum += ep_reward
-            if isinstance(update_stats, dict):
-                total_loss += float(update_stats.get("loss", 0.0))
-                loss_count += 1
-                total_kl += float(update_stats.get("approx_kl", 0.0))
-                kl_count += 1
+
             winner = info.get("winner", 0)
             if winner == 1:
                 total_wins += 1
@@ -532,30 +557,33 @@ class AITrainer:
             else:
                 total_losses += 1
                 interval_losses += 1
-            
+
             # 1000판 단위 처리
             if self.total_trained_episodes % 1000 == 0:
+                flush_batch_if_needed(force=True)
                 eval_triggered = True
                 print(f"[AITrainer] Reached {self.total_trained_episodes} episodes. Saving and starting evaluation...", flush=True)
-                
+
                 # 1. 체크포인트 보관 (회전 및 pending 저장)
                 self._save_checkpoint(self.total_trained_episodes)
-                
+
                 # 2. 현재 모델 저장 및 승급전 플래그 설정
                 self.needs_evaluation = True
                 self.save_model(self.model_path)
-                
+
                 # 3. 승급전 수행 (독립적 1000판)
                 promoted = self.evaluate_model()
-                
+
                 # 4. historical_networks 갱신 및 적 후보군 업데이트
                 # (이제 historical_networks에는 pending을 제외한 1000~5000 모델만 로드됨)
                 self._load_historical_checkpoints()
                 self._update_enemy_candidates()
-                
+
                 # 5. 최종 결과 저장 및 GitHub 푸시
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=promoted)
+            else:
+                flush_batch_if_needed(force=False)
 
             if ep % log_interval == 0:
                 total_games = max(1, total_wins + total_draws + total_losses)
@@ -578,7 +606,8 @@ class AITrainer:
                     "learning_rate": round(float(self.network.learning_rate), 8),
                     "entropy_coef": round(float(self.network.entropy_coef), 8),
                     "eval_triggered": eval_triggered,
-                    "algo": "PPO"
+                    "algo": "PPO",
+                    "update_batch_episodes": update_batch_episodes
                 }), flush=True)
                 interval_wins = interval_draws = interval_losses = 0
                 reward_window_sum = 0.0
@@ -587,11 +616,14 @@ class AITrainer:
                 total_kl = 0.0
                 kl_count = 0
                 weight_delta_sum = 0.0
-            
-            if ep % 10 == 0:
+
+            if ep % update_batch_episodes == 0:
+                flush_batch_if_needed(force=True)
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=False)
             gc.collect()
+
+        flush_batch_if_needed(force=True)
 
     def sync_to_github(self, root_dir, rel_model_path, ep, include_best_model=False):
         try:
