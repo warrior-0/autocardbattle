@@ -81,6 +81,7 @@ class AITrainer:
         self.initial_network = self._clone_network(self.network)
 
         self.load_model(self.model_path)
+        self._load_best_model_if_exists()
         self.training_map_pool = self._load_training_map_pool()
         self.map_rotation_index = self.total_trained_episodes % max(1, len(self.training_map_pool))
         self._load_or_init_pending_checkpoint()
@@ -90,6 +91,41 @@ class AITrainer:
 
         # 대전 상대로 쓸 '격차가 유지된 모델'들을 설정
         self._update_enemy_candidates()
+
+    def _best_model_path(self):
+        checkpoint_dir = os.path.dirname(self.model_path)
+        return os.path.join(checkpoint_dir, "best_model.json")
+
+    def _load_best_model_if_exists(self):
+        best_path = self._best_model_path()
+        if not os.path.exists(best_path):
+            return
+        try:
+            with open(best_path, 'r') as f:
+                cp_data = json.load(f)
+            state_dict = cp_data.get("policy_state_dict") or cp_data.get("state_dict")
+            if state_dict:
+                self.best_network.load_state_dict(state_dict, strict=True)
+                print("[AITrainer] Loaded best_model.json into best_network.", flush=True)
+        except Exception as e:
+            print(f"[AITrainer] Failed to load best_model.json: {e}", flush=True)
+
+    def _save_best_model(self):
+        best_path = self._best_model_path()
+        try:
+            os.makedirs(os.path.dirname(best_path), exist_ok=True)
+            checkpoint = {
+                "policy_state_dict": self.best_network.state_dict(),
+                "total_trained_episodes": int(self.total_trained_episodes),
+                "timestamp": time.time()
+            }
+            with open(best_path, 'w') as f:
+                json.dump(checkpoint, f)
+            print(f"[AITrainer] Saved best model: {best_path}", flush=True)
+            return True
+        except Exception as e:
+            print(f"[AITrainer] Failed to save best model: {e}", flush=True)
+            return False
 
     def _load_training_map_pool(self):
         """
@@ -186,7 +222,7 @@ class AITrainer:
         """
         # 0~1999판 구간: 적은 항상 0번 학습된 초기 모델
         if not self._has_formal_checkpoints():
-            # 정식 체크포인트가 없면 pending 모델만 상대
+            # 정식 체크포인트가 없으면 pending 모델만 상대
             self.previous_network = self._clone_network(self.pending_network)
             self.other_historical_candidates = []
         elif self.total_trained_episodes < 2000:
@@ -358,7 +394,7 @@ class AITrainer:
             except Exception as e:
                 print(f"[AITrainer] Pending save failed: {e}", flush=True)
         else:
-            # 2000판 이상부터는 현재 학습된 최신 모델을 pending으로 저장
+            # 2000 이상부터는 현재 학습된 최신 모델을 pending으로 저장
             if os.path.exists(self.model_path):
                 shutil.copy2(self.model_path, pending_path)
             else:
@@ -399,6 +435,7 @@ class AITrainer:
         if promoted:
             self.best_network = self._clone_network(self.network)
             print(f"[AITrainer] PROMOTED! New Best Model (Win Rate: {win_rate:.4f})", flush=True)
+            self._save_best_model()
         else:
             print(f"[AITrainer] Promotion Failed. (Win Rate: {win_rate:.4f})", flush=True)
         
@@ -477,16 +514,16 @@ class AITrainer:
                 self.save_model(self.model_path)
                 
                 # 3. 승급전 수행 (독립적 1000판)
-                self.evaluate_model()
+                promoted = self.evaluate_model()
                 
                 # 4. historical_networks 갱신 및 적 후보군 업데이트
                 # (이제 historical_networks에는 pending을 제외한 1000~5000 모델만 로드됨)
                 self._load_historical_checkpoints()
                 self._update_enemy_candidates()
                 
-                # 5. 최종 결과 저장 및 GitHub 푸시
+                # 5. 종 결과 저장 및 GitHub 푸시
                 self.save_model(self.model_path)
-                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes)
+                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=promoted)
 
             if ep % log_interval == 0:
                 interval_games = max(1, interval_wins + interval_draws + interval_losses)
@@ -525,10 +562,10 @@ class AITrainer:
             
             if ep % 10 == 0:
                 self.save_model(self.model_path)
-                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes)
+                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=False)
             gc.collect()
 
-    def sync_to_github(self, root_dir, rel_model_path, ep):
+    def sync_to_github(self, root_dir, rel_model_path, ep, include_best_model=False):
         try:
             token = os.getenv("GITHUB_TOKEN")
             if not token:
@@ -547,6 +584,13 @@ class AITrainer:
                 rel_cp = os.path.relpath(cp, root_dir)
                 subprocess.run(["git", "add", rel_cp], cwd=root_dir, check=True)
                 print(f"[Git-Push] Staged checkpoint: {rel_cp}", flush=True)
+
+            if include_best_model:
+                best_model_abs = self._best_model_path()
+                if os.path.exists(best_model_abs):
+                    rel_best = os.path.relpath(best_model_abs, root_dir)
+                    subprocess.run(["git", "add", rel_best], cwd=root_dir, check=True)
+                    print(f"[Git-Push] Staged promoted best model: {rel_best}", flush=True)
 
             res = subprocess.run(["git", "commit", "-m", f"chore: update model at {ep}"], cwd=root_dir, capture_output=True)
             if res.returncode == 0:
