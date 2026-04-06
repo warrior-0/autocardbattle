@@ -583,16 +583,27 @@ class AITrainer:
 
             eval_triggered = (self.total_trained_episodes % 1000 == 0)
 
-            if ep % log_interval == 0:
+            is_update_step = (ep % update_batch_episodes == 0)
+            is_log_step = (ep % log_interval == 0)
+            
+            if is_update_step:
+                flush_batch_if_needed(force=True)
+                
+            if is_log_step and self.total_trained_episodes % 1000 != 0:
+                # ✅ 실제 구간 길이 계산
+                window_size = ep % log_interval
+                if window_size == 0:
+                    window_size = log_interval
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
                 avg_kl = total_kl / max(1, kl_count)
-                avg_weight_delta = weight_delta_sum / max(1, log_interval)
+                avg_weight_delta = weight_delta_sum / max(1, loss_count)
+
                 print(json.dumps({
                     "episode": ep,
                     "total_episode": self.total_trained_episodes,
                     "reward": round(ep_reward, 2),
-                    "avg_reward": round(reward_window_sum / log_interval, 2),
+                    "avg_reward": round(reward_window_sum / max(1, window_size), 2),
                     "avg_loss": round(avg_loss, 6),
                     "avg_kl": round(avg_kl, 6),
                     "avg_weight_delta_l2": round(avg_weight_delta, 8),
@@ -603,10 +614,12 @@ class AITrainer:
                     "elapsed_time": round(time.time() - start_time, 2),
                     "learning_rate": round(float(self.network.learning_rate), 8),
                     "entropy_coef": round(float(self.network.entropy_coef), 8),
-                    "eval_triggered": eval_triggered,
+                    "eval_triggered": False,
+                    "log_type": "rolling",
                     "algo": "PPO",
                     "update_batch_episodes": update_batch_episodes
                 }), flush=True)
+                
                 interval_wins = interval_draws = interval_losses = 0
                 reward_window_sum = 0.0
                 total_loss = 0.0
@@ -618,6 +631,35 @@ class AITrainer:
             # 1000판 단위 처리
             if self.total_trained_episodes % 1000 == 0:
                 flush_batch_if_needed(force=True)
+                window_size = ep % log_interval
+                if window_size == 0:
+                    window_size = log_interval
+                
+                total_games = max(1, total_wins + total_draws + total_losses)
+                avg_loss = total_loss / max(1, loss_count)
+                avg_kl = total_kl / max(1, kl_count)
+                avg_weight_delta = weight_delta_sum / max(1, loss_count)
+
+                print(json.dumps({
+                    "episode": ep,
+                    "total_episode": self.total_trained_episodes,
+                    "avg_reward": round(reward_window_sum / max(1, window_size), 2),
+                    "avg_loss": round(avg_loss, 6),
+                    "avg_kl": round(avg_kl, 6),
+                    "avg_weight_delta_l2": round(avg_weight_delta, 8),
+                    "wins": total_wins,
+                    "losses": total_losses,
+                    "draws": total_draws,
+                    "win_rate": round(total_wins / total_games, 4),
+                    "elapsed_time": round(time.time() - start_time, 2),
+                    "learning_rate": round(float(self.network.learning_rate), 8),
+                    "entropy_coef": round(float(self.network.entropy_coef), 8),
+                    "eval_triggered": self.needs_evaluation,
+                    "log_type": "final_pre_eval",
+                    "algo": "PPO",
+                    "update_batch_episodes": update_batch_episodes
+                }), flush=True)
+                
                 print(f"[AITrainer] Reached {self.total_trained_episodes} episodes. Saving and starting evaluation...", flush=True)
 
                 # 1. 체크포인트 보관 (회전 및 pending 저장)
@@ -643,7 +685,6 @@ class AITrainer:
                 flush_batch_if_needed(force=False)
 
             if ep % update_batch_episodes == 0:
-                flush_batch_if_needed(force=True)
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=False)
             gc.collect()
