@@ -141,6 +141,16 @@ public class RlAiService {
             return Optional.empty();
         }
 
+        // Hybrid(CNN) 체크포인트는 현재 Java 추론기(MLP)와 구조가 달라
+        // 확률 점수를 직접 계산할 수 없으므로, 유효 후보 중 랜덤 선택으로 안전하게 진행합니다.
+        if (activeModel.hybridModel || qValues.length == 0) {
+            CandidateAction selected = selectFallbackCandidate(candidates);
+            if (selected == null || selected.isCompleteTurn()) {
+                return Optional.empty();
+            }
+            return Optional.of(toBattleAction(selected, state));
+        }
+
         // 1. 유효한 행동 후보들의 확률 분포 계산 (Softmax)
         // PPO 모델의 출력(Logits)을 확률 분포로 변환하여 확률적 선택을 수행합니다.
         List<CandidateAction> validCandidates = new ArrayList<>();
@@ -191,25 +201,40 @@ public class RlAiService {
         if (selected.isCompleteTurn()) {
             return Optional.empty();
         }
-        
-        CandidateAction best = selected;
 
+        return Optional.of(toBattleAction(selected, state));
+    }
+
+    private CandidateAction selectFallbackCandidate(List<CandidateAction> candidates) {
+        List<CandidateAction> nonPass = new ArrayList<>();
+        for (CandidateAction c : candidates) {
+            if (!c.isCompleteTurn()) {
+                nonPass.add(c);
+            }
+        }
+        if (nonPass.isEmpty()) {
+            return null;
+        }
+        int pick = ThreadLocalRandom.current().nextInt(nonPass.size());
+        return nonPass.get(pick);
+    }
+
+    private BattleMessage toBattleAction(CandidateAction chosen, BattleService.GameState state) {
         BattleMessage action = new BattleMessage();
         action.setSender(state.aiUid);
         action.setTurn(state.turn);
-        action.setDiceType(best.diceType);
-        action.setX(best.x);
-        action.setY(best.y);
+        action.setDiceType(chosen.diceType);
+        action.setX(chosen.x);
+        action.setY(chosen.y);
 
-        if (best.mergeTarget != null) {
+        if (chosen.mergeTarget != null) {
             action.setType("MERGE");
-            action.setLevel(best.mergeTarget.getLevel() + 1);
+            action.setLevel(chosen.mergeTarget.getLevel() + 1);
         } else {
             action.setType("PLACE");
             action.setLevel(1);
         }
-
-        return Optional.of(action);
+        return action;
     }
 
     private int[] encodeState(
@@ -501,9 +526,14 @@ public class RlAiService {
         int stateSize = root.path("state_size").asInt(0);
         int actionSize = root.path("action_size").asInt(0);
 
+        boolean hybridModel = weights.has("conv1.weight") || weights.has("policy_head.weight");
+
         // 만약 actionSize가 명시되어 있지 않다면 가중치 행렬의 마지막 레이어 크기로 추론
         if (actionSize <= 0 && weights.has("net.4.bias")) {
             actionSize = weights.get("net.4.bias").size();
+        }
+        if (actionSize <= 0 && weights.has("policy_head.bias")) {
+            actionSize = weights.get("policy_head.bias").size();
         }
 
         List<String> mapData = parseMapData(root.path("map_data"));
@@ -511,6 +541,11 @@ public class RlAiService {
         List<Integer> enemyTiles = parseIntList(root.path("enemy_tiles"));
 
         PolicyModel model = new PolicyModel(path, stateSize, actionSize, mapData, playerTiles, enemyTiles);
+        model.hybridModel = hybridModel;
+
+        if (hybridModel) {
+            return model;
+        }
 
         model.W1 = toMatrix(weights.path("net.0.weight"));
         model.B1 = toVector(weights.path("net.0.bias"));
@@ -639,6 +674,7 @@ public class RlAiService {
         double[] B2;
         double[][] W3;
         double[] B3;
+        boolean hybridModel;
 
         PolicyModel(
                 Path path,
@@ -654,6 +690,7 @@ public class RlAiService {
             this.mapData = mapData == null ? new ArrayList<>() : mapData;
             this.playerTiles = playerTiles == null ? new ArrayList<>() : playerTiles;
             this.enemyTiles = enemyTiles == null ? new ArrayList<>() : enemyTiles;
+            this.hybridModel = false;
         }
 
         static PolicyModel empty(Path path) {
@@ -661,6 +698,9 @@ public class RlAiService {
         }
 
         double[] predict(int[] state) {
+            if (hybridModel) {
+                return new double[0];
+            }
             if (actionSize <= 0) {
                 return new double[0];
             }
