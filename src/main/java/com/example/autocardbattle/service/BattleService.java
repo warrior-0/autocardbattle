@@ -85,6 +85,8 @@ public class BattleService {
 
     public static class GameState {
         public Map<String, List<BattleMessage>> placements = new HashMap<>();
+        // 라운드 시작 시점(이번 라운드 행동 전)의 배치 정보 스냅샷
+        public Map<String, List<BattleMessage>> roundStartPlacements = new HashMap<>();
         public Set<String> readyUsers = new HashSet<>();
         public int turn = 1;
         public Map<String, Integer> playerHps = new HashMap<>();
@@ -453,7 +455,9 @@ public class BattleService {
         if (hand.isEmpty()) {
             return null;
         }
-        List<BattleMessage> humanPlacements = state.placements.getOrDefault(state.humanUid, List.of());
+        // 핵심: AI는 "이번 라운드에 새로 배치된 인간 정보"를 보지 못하고,
+        // 라운드 시작 시점(이전 라운드까지 확정된) 배치 정보만 참조합니다.
+        List<BattleMessage> humanPlacements = state.roundStartPlacements.getOrDefault(state.humanUid, List.of());
         int aiActionsUsed = state.turnActionCounts.getOrDefault(state.aiUid, 0);
         int aiHp = state.playerHps.getOrDefault(state.aiUid, 5);
         int humanHp = state.playerHps.getOrDefault(state.humanUid, 5);
@@ -564,6 +568,8 @@ public class BattleService {
             if (timer != null) timer.cancel(false);
         } else {
             state.placements = copyPlacementsByOwner(allPlacements);
+            // 다음 라운드 시작 시점에 참조할 스냅샷(이전 라운드까지의 확정 정보)
+            state.roundStartPlacements = copyPlacementsByOwner(allPlacements);
             state.readyUsers.clear();
             state.turnActionCounts.clear();
             state.turn++;
@@ -576,6 +582,11 @@ public class BattleService {
             long animationDuration = lastLogTime + 2000;
             if (animationDuration > 30000) {
                 animationDuration = 30000;
+            }
+
+            // AI전은 새 라운드 시작과 동시에 AI 턴을 즉시 수행
+            if (state.isAiMatch()) {
+                executeAiTurn(roomId, state);
             }
             scheduleTurnTimeout(roomId, state.turn, animationDuration);
         }
@@ -605,7 +616,7 @@ public class BattleService {
                 break;
             }
 
-            // [지연 반영] 데미지 큐를 관리하기 위한 리스트 (도착 시간, 대상, 데미지 양)
+            // [지연 반영] 데미지 큐를 관리기 위한 리스트 (도착 시간, 대상, 데미지 양)
             final int PROJECTILE_DELAY = 300;
             
             // AbilityHandler에서 공통으로 사용하는 임시 데미지 누적기 (매 틱 초기화)
@@ -745,6 +756,14 @@ public class BattleService {
             if (!isAiSender(state, uid)) {
                 messagingTemplate.convertAndSend("/topic/battle/" + roomId + "/" + uid, startMsg);
             }
+        }
+
+        // 1라운드 시작 시점에는 서로 배치 정보가 없도록 초기화
+        state.roundStartPlacements.clear();
+
+        // AI전은 라운드 시작 즉시 AI 턴 실행
+        if (state.isAiMatch()) {
+            executeAiTurn(roomId, state);
         }
         scheduleTurnTimeout(roomId, 1, 0);
     }
