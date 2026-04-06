@@ -155,6 +155,8 @@ class PPONetwork:
             x2 = x.reshape(1, -1)
         else:
             x2 = x
+        if x2.shape[1] != self.state_size:
+            raise ValueError(f"Invalid input state width: expected {self.state_size}, got {x2.shape[1]}")
 
         common = x2[:, :self.COMMON_SIZE]
         spatial_start = self.COMMON_SIZE
@@ -403,6 +405,7 @@ class PPONetwork:
                 legacy_w3 = to_numpy(state_dict["net.4.weight"])
                 legacy_b3 = to_numpy(state_dict["net.4.bias"]).reshape(-1, 1)
 
+                # hybrid의 non-spatial branch에 legacy 초반 일부를 이식
                 rows = min(self.non_fc1_w.shape[0], legacy_w1.shape[0])
                 cols = min(self.non_fc1_w.shape[1], legacy_w1.shape[1])
                 self.non_fc1_w[:rows, :cols] = legacy_w1[:rows, :cols]
