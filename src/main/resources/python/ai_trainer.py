@@ -231,7 +231,7 @@ class AITrainer:
             self.previous_network = self._clone_network(self.initial_network)
             self.other_historical_candidates = []
         else:
-            # 2000판 이상: historical_networks의 가장 최신 모델([-1])을 previous로 사용
+            # 1000판 이상: historical_networks의 가장 최신 모델([-1])을 previous로 사용
             # historical_networks에는 이미 1000판 격차가 확보된 모델들만 들어있음 (pending 제외)
             if len(self.historical_networks) >= 1:
                 self.previous_network = self._clone_network(self.historical_networks[-1])
@@ -398,8 +398,8 @@ class AITrainer:
         self._rotate_checkpoints()
         
         # 2. 현재 모델을 pending으로 저장 (다음 1000판 동안 대기)
-        if ep < 2000:
-            # 0~1999판 사이에는 0번 학습된 초기 모델을 pending으로 저장
+        if ep < 1000:
+            # 0~999판 사이에는 0번 학습된 초기 모델을 pending으로 저장
             print(f"[AITrainer] Episode {ep}: Saving initial model as pending.", flush=True)
             try:
                 os.makedirs(os.path.dirname(pending_path), exist_ok=True)
@@ -415,7 +415,7 @@ class AITrainer:
             except Exception as e:
                 print(f"[AITrainer] Pending save failed: {e}", flush=True)
         else:
-            # 2000판 이상부터는 현재 학습된 최신 모델을 pending으로 저장
+            # 1000판 이상부터는 현재 학습된 최신 모델을 pending으로 저장
             if os.path.exists(self.model_path):
                 shutil.copy2(self.model_path, pending_path)
             else:
