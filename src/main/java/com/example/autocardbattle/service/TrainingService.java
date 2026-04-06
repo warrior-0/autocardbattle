@@ -292,7 +292,11 @@ public class TrainingService {
                     return;
                 }
                 if (exitCode == 0) {
-                    Files.copy(job.modelPath, job.stableModelPath, StandardCopyOption.REPLACE_EXISTING);
+                    Path normalizedModelPath = job.modelPath.toAbsolutePath().normalize();
+                    Path normalizedStablePath = job.stableModelPath.toAbsolutePath().normalize();
+                    if (!normalizedModelPath.equals(normalizedStablePath)) {
+                        Files.copy(job.modelPath, job.stableModelPath, StandardCopyOption.REPLACE_EXISTING);
+                    }
                     job.status = "COMPLETED";
                     updateMetaStatus(job, "COMPLETED");
                 } else {
