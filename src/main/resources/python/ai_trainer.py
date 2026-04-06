@@ -586,7 +586,7 @@ class AITrainer:
             is_update_step = (ep % update_batch_episodes == 0)
             is_log_step = (ep % log_interval == 0)
             
-            if is_update_step:
+            if is_update_step and self.total_trained_episodes % 1000 != 0:
                 flush_batch_if_needed(force=True)
                 
             if is_log_step and self.total_trained_episodes % 1000 != 0:
@@ -631,6 +631,7 @@ class AITrainer:
             # 1000판 단위 처리
             if self.total_trained_episodes % 1000 == 0:
                 flush_batch_if_needed(force=True)
+                self.needs_evaluation = True
                 window_size = ep % log_interval
                 if window_size == 0:
                     window_size = log_interval
@@ -666,7 +667,6 @@ class AITrainer:
                 self._save_checkpoint(self.total_trained_episodes)
 
                 # 2. 현재 모델 저장 및 승급전 플래그 설정
-                self.needs_evaluation = True
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=False)
 
@@ -681,8 +681,6 @@ class AITrainer:
                 # 5. 최종 결과 저장 및 GitHub 푸시
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=promoted)
-            else:
-                flush_batch_if_needed(force=False)
 
             if ep % update_batch_episodes == 0:
                 self.save_model(self.model_path)
