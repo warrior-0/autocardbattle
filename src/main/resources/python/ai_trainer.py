@@ -394,7 +394,7 @@ class AITrainer:
             except Exception as e:
                 print(f"[AITrainer] Pending save failed: {e}", flush=True)
         else:
-            # 2000 이상부터는 현재 학습된 최신 모델을 pending으로 저장
+            # 2000판 이상부터는 현재 학습된 최신 모델을 pending으로 저장
             if os.path.exists(self.model_path):
                 shutil.copy2(self.model_path, pending_path)
             else:
@@ -461,7 +461,9 @@ class AITrainer:
         # 시작 전 미결된 승급전이 있는지 체크
         if self.needs_evaluation:
             print("[AITrainer] Unfinished evaluation found. Running evaluation first...", flush=True)
-            self.evaluate_model()
+            promoted = self.evaluate_model()
+            if promoted:
+                self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=True)
 
         for ep in range(1, episodes + 1):
             total_episode = self.total_trained_episodes + 1
@@ -521,7 +523,7 @@ class AITrainer:
                 self._load_historical_checkpoints()
                 self._update_enemy_candidates()
                 
-                # 5. 종 결과 저장 및 GitHub 푸시
+                # 5. 최종 결과 저장 및 GitHub 푸시
                 self.save_model(self.model_path)
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=promoted)
 
