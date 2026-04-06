@@ -281,6 +281,7 @@ class PPONetwork:
                 use_unclipped = unclipped <= clipped
                 dL_dlogp = np.zeros(bs, dtype=np.float32)
                 dL_dlogp[use_unclipped] = -(adv[use_unclipped] * ratio[use_unclipped]) / bs
+                dL_dlogp[~use_unclipped] = -(adv[~use_unclipped] * clipped_ratio[~use_unclipped]) / bs
 
                 one_hot = np.zeros_like(probs)
                 one_hot[np.arange(bs), a_idx] = 1.0
