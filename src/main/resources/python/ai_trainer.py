@@ -597,7 +597,7 @@ class AITrainer:
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
                 avg_kl = total_kl / max(1, kl_count)
-                avg_weight_delta = weight_delta_sum / max(1, loss_count)
+                avg_weight_delta = weight_delta_sum / max(1, window_size)
 
                 print(json.dumps({
                     "episode": ep,
@@ -614,7 +614,7 @@ class AITrainer:
                     "elapsed_time": round(time.time() - start_time, 2),
                     "learning_rate": round(float(self.network.learning_rate), 8),
                     "entropy_coef": round(float(self.network.entropy_coef), 8),
-                    "eval_triggered": False,
+                    "eval_triggered": self.needs_evaluation,
                     "log_type": "rolling",
                     "algo": "PPO",
                     "update_batch_episodes": update_batch_episodes
@@ -632,9 +632,7 @@ class AITrainer:
             if self.total_trained_episodes % 1000 == 0:
                 flush_batch_if_needed(force=True)
                 self.needs_evaluation = True
-                window_size = ep % log_interval
-                if window_size == 0:
-                    window_size = log_interval
+                window_size = log_interval
                 
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
