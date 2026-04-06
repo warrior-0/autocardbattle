@@ -24,6 +24,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,12 +107,21 @@ public class TrainingService {
         objectMapper.writeValue(metaPath.toFile(), meta);
 
         Path diceCatalogPath = writeDiceCatalog(jobId);
-        List<MapTileEntity> maps = mapRepository.findRandomMap();
-        MapTileEntity map = maps.isEmpty() ? null : maps.get(0);
-        if(map==null){
+        List<MapTileEntity> allMaps = mapRepository.findAll();
+        if (allMaps.isEmpty()) {
             throw new RuntimeException("No map found in DB");
         }
-        String mapData = map.getMapData();
+
+        List<MapTileEntity> selectedMaps = new ArrayList<>(allMaps);
+        if (selectedMaps.size() > 10) {
+            Collections.shuffle(selectedMaps);
+            selectedMaps = new ArrayList<>(selectedMaps.subList(0, 10));
+        }
+
+        List<String> mapPoolData = selectedMaps.stream()
+                .map(MapTileEntity::getMapData)
+                .toList();
+        String mapPoolJson = objectMapper.writeValueAsString(mapPoolData);
         
         List<String> command = List.of("nice", "-n", "19", "python3", "ai_trainer.py");
         ProcessBuilder builder = new ProcessBuilder(command);
@@ -122,7 +132,7 @@ public class TrainingService {
         builder.environment().put("AUTOCARDBATTLE_INIT_MODEL_PATH", stableModelPath.toAbsolutePath().toString());
         builder.environment().put("AUTOCARDBATTLE_TRAIN_EPISODES", String.valueOf(episodes));
         builder.environment().put("AUTOCARDBATTLE_TRAIN_LOG_INTERVAL", String.valueOf(logInterval));
-        builder.environment().put("AUTOCARDBATTLE_MAP_DATA", mapData);
+        builder.environment().put("AUTOCARDBATTLE_MAP_POOL_JSON", mapPoolJson);
         builder.environment().put("AUTOCARDBATTLE_JOB_ID", jobId);
 
         Process process = builder.start();
