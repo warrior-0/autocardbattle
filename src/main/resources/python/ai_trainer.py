@@ -564,23 +564,19 @@ class AITrainer:
                 avg_weight_delta = weight_delta_sum / max(1, log_interval)
                 print(json.dumps({
                     "episode": ep,
-                    "total": self.total_trained_episodes,
                     "total_episode": self.total_trained_episodes,
                     "reward": round(ep_reward, 2),
                     "avg_reward": round(reward_window_sum / log_interval, 2),
                     "avg_loss": round(avg_loss, 6),
                     "avg_kl": round(avg_kl, 6),
                     "avg_weight_delta_l2": round(avg_weight_delta, 8),
-                    "winner": winner,
                     "wins": total_wins,
-                    "draws": total_draws,
                     "losses": total_losses,
+                    "draws": total_draws,
                     "win_rate": round(total_wins / total_games, 4),
-                    "draw_rate": round(total_draws / total_games, 4),
-                    "loss_rate": round(total_losses / total_games, 4),
+                    "elapsed_time": round(time.time() - start_time, 2),
                     "learning_rate": round(float(self.network.learning_rate), 8),
                     "entropy_coef": round(float(self.network.entropy_coef), 8),
-                    "elapsed_time": round(time.time() - start_time, 2),
                     "eval_triggered": eval_triggered,
                     "algo": "PPO"
                 }), flush=True)
