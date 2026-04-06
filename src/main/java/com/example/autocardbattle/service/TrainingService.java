@@ -133,7 +133,7 @@ public class TrainingService {
         builder.environment().put("AUTOCARDBATTLE_TRAIN_EPISODES", String.valueOf(episodes));
         builder.environment().put("AUTOCARDBATTLE_TRAIN_LOG_INTERVAL", String.valueOf(logInterval));
         builder.environment().put("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES",
-        System.getenv().getOrDefault("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES", "10"));
+        System.getenv().getOrDefault("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES", "50"));
         builder.environment().put("AUTOCARDBATTLE_MAP_POOL_JSON", mapPoolJson);
         builder.environment().put("AUTOCARDBATTLE_JOB_ID", jobId);
 
