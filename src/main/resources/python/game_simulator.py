@@ -30,6 +30,13 @@ Action = Tuple[int, int]  # (hand_index, tile_index), (-1, -1) == PASS
 PASS_ACTION: Action = (-1, -1)
 Side = Literal["player", "enemy"]
 
+# Fixed state spec (dice 종류 수와 무관)
+COMMON_FEATURES = 4
+UNIT_STAT_FEATURES = 5  # hp, damage, range, aps, level
+SPATIAL_CHANNELS = 1 + (UNIT_STAT_FEATURES * 2)  # map + own(5) + opp(5) = 11
+NON_SPATIAL_FEATURES = 5 + 1  # hand_stat_agg(5) + last_result(1)
+STATE_SIZE = COMMON_FEATURES + (SPATIAL_CHANNELS * TOTAL_TILES) + NON_SPATIAL_FEATURES
+
 
 @dataclass(frozen=True)
 class DiceStat:
@@ -159,6 +166,10 @@ class GameSimulator:
         self.dice_by_type: Dict[str, DiceStat] = {d.dice_type: d for d in self.dice_catalog}
         self.dice_types = tuple(d.dice_type for d in self.dice_catalog)
         self.dice_type_to_index = {dt: i for i, dt in enumerate(self.dice_types)}
+        self.max_hp = max(1.0, max(float(d.hp) for d in self.dice_catalog))
+        self.max_damage = max(1.0, max(float(d.damage) for d in self.dice_catalog))
+        self.max_range = max(1.0, max(float(d.attack_range) for d in self.dice_catalog))
+        self.max_aps = max(1.0, max(float(d.aps) for d in self.dice_catalog))
 
         self.map_data = self._load_map_data(map_data)
         if len(self.map_data) != TOTAL_TILES:
@@ -548,63 +559,64 @@ class GameSimulator:
             else: encoded.append(0)
         return encoded
 
-    def _encode_board_types(self, board: Dict[int, Placement], revealed_tiles: Optional[set[int]] = None) -> np.ndarray:
-        # [최적화] numpy 벡터화 (IndexError 방지)
-        arr = np.zeros(TOTAL_TILES, dtype=np.int32)
-        if board:
-            indices = np.array(list(board.keys()))
-            # 유효한 인덱스만 필터링
-            valid_mask = (indices >= 0) & (indices < TOTAL_TILES)
-            valid_indices = indices[valid_mask]
-            
-            if len(valid_indices) > 0:
-                if revealed_tiles is not None:
-                    # 공개된 상대 유닛만 포함
-                    revealed_indices = [idx for idx in valid_indices if idx in revealed_tiles]
-                    types = [board[idx].dice_type for idx in revealed_indices]
-                    valid_indices = np.array(revealed_indices, dtype=np.int32)
-                else:
-                    types = [board[idx].dice_type for idx in valid_indices]
-                    valid_indices = np.array(valid_indices, dtype=np.int32)
-                type_indices = []
-                for t in types:
-                    try: type_indices.append(self.dice_types.index(t) + 1)
-                    except ValueError: type_indices.append(0)
-                arr[valid_indices] = type_indices
+    def _encode_board_stat(self, board: Dict[int, Placement], stat_name: str, revealed_tiles: Optional[set[int]] = None) -> np.ndarray:
+        arr = np.zeros(TOTAL_TILES, dtype=np.float32)
+        if not board:
+            return arr
+
+        for tile, placement in board.items():
+            if tile < 0 or tile >= TOTAL_TILES:
+                continue
+            if revealed_tiles is not None and tile not in revealed_tiles:
+                continue
+            stat = self.dice_by_type.get(placement.dice_type)
+            if stat is None:
+                continue
+
+            if stat_name == "hp":
+                base = float(stat.hp) / self.max_hp
+            elif stat_name == "damage":
+                base = float(stat.damage) / self.max_damage
+            elif stat_name == "range":
+                base = float(stat.attack_range) / self.max_range
+            elif stat_name == "aps":
+                base = float(stat.aps) / self.max_aps
+            elif stat_name == "level":
+                base = float(placement.level) / max(1.0, float(MAX_UNIT_LEVEL))
+            else:
+                base = 0.0
+            arr[tile] = np.float32(base)
         return arr
 
-    def _encode_board_levels(self, board: Dict[int, Placement], revealed_tiles: Optional[set[int]] = None) -> np.ndarray:
-        # [최적화] numpy 벡터화 (IndexError 방지)
-        arr = np.zeros(TOTAL_TILES, dtype=np.int32)
-        if board:
-            indices = np.array(list(board.keys()))
-            # 유효한 인덱스만 필터링
-            valid_mask = (indices >= 0) & (indices < TOTAL_TILES)
-            valid_indices = indices[valid_mask]
-            
-            if len(valid_indices) > 0:
-                if revealed_tiles is not None:
-                    # 공개된 상대 유닛만 포함
-                    revealed_indices = [idx for idx in valid_indices if idx in revealed_tiles]
-                    levels = [board[idx].level for idx in revealed_indices]
-                    valid_indices = np.array(revealed_indices, dtype=np.int32)
-                else:
-                    levels = [board[idx].level for idx in valid_indices]
-                    valid_indices = np.array(valid_indices, dtype=np.int32)
-                arr[valid_indices] = levels
-        return arr
+    def _encode_hand_stat_summary(self, hand: List[str]) -> np.ndarray:
+        feats = np.zeros(5, dtype=np.float32)  # hp, damage, range, aps, level(=1)
+        if not hand:
+            return feats
+
+        for dt in hand:
+            stat = self.dice_by_type.get(dt)
+            if stat is None:
+                continue
+            feats[0] += float(stat.hp) / self.max_hp
+            feats[1] += float(stat.damage) / self.max_damage
+            feats[2] += float(stat.attack_range) / self.max_range
+            feats[3] += float(stat.aps) / self.max_aps
+            feats[4] += 1.0 / max(1.0, float(MAX_UNIT_LEVEL))
+
+        denom = max(1.0, float(HAND_SIZE))
+        return (feats / denom).astype(np.float32)
 
     def get_state_for(self, side: Side) -> np.ndarray:
         # [최적화] 상태 벡터 생성 완전 벡터화
         is_player = (side == "player")
-        own_hp = self.player_hp if is_player else self.enemy_hp
-        opp_hp = self.enemy_hp if is_player else self.player_hp
+        own_hp_scalar = self.player_hp if is_player else self.enemy_hp
+        opp_hp_scalar = self.enemy_hp if is_player else self.player_hp
         actions_used = self.player_actions_used if is_player else self.enemy_actions_used
         
         # 1. 공통 정보 (4개)
         common = np.array([
-            own_hp / STARTING_HP, 
-            opp_hp / STARTING_HP, 
+            own_hp_scalar / STARTING_HP,
+            opp_hp_scalar / STARTING_HP,
             actions_used / MAX_ACTIONS_PER_TURN, 
             self.current_round / MAX_ROUNDS_PER_GAME
         ], dtype=np.float32)
@@ -612,28 +624,45 @@ class GameSimulator:
         # 2. 맵 정보 (64개)
         map_info = self.encoded_map
         
-        # 3. 보드 정보 (256개)
+        # 3. 보드 정보 (stat 기반 spatial 채널)
         if is_player:
-            own_types = self._encode_board_types(self.player_board)
-            own_lvls = self._encode_board_levels(self.player_board)
-            opp_types = self._encode_board_types(self.enemy_board, self.revealed_enemy_tiles)
-            opp_lvls = self._encode_board_levels(self.enemy_board, self.revealed_enemy_tiles)
+            own_hp = self._encode_board_stat(self.player_board, "hp")
+            own_damage = self._encode_board_stat(self.player_board, "damage")
+            own_range = self._encode_board_stat(self.player_board, "range")
+            own_aps = self._encode_board_stat(self.player_board, "aps")
+            own_lvl = self._encode_board_stat(self.player_board, "level")
+            opp_hp = self._encode_board_stat(self.enemy_board, "hp", self.revealed_enemy_tiles)
+            opp_damage = self._encode_board_stat(self.enemy_board, "damage", self.revealed_enemy_tiles)
+            opp_range = self._encode_board_stat(self.enemy_board, "range", self.revealed_enemy_tiles)
+            opp_aps = self._encode_board_stat(self.enemy_board, "aps", self.revealed_enemy_tiles)
+            opp_lvl = self._encode_board_stat(self.enemy_board, "level", self.revealed_enemy_tiles)
         else:
-            own_types = self._encode_board_types(self.enemy_board)
-            own_lvls = self._encode_board_levels(self.enemy_board)
-            opp_types = self._encode_board_types(self.player_board, self.revealed_player_tiles)
-            opp_lvls = self._encode_board_levels(self.player_board, self.revealed_player_tiles)
+            own_hp = self._encode_board_stat(self.enemy_board, "hp")
+            own_damage = self._encode_board_stat(self.enemy_board, "damage")
+            own_range = self._encode_board_stat(self.enemy_board, "range")
+            own_aps = self._encode_board_stat(self.enemy_board, "aps")
+            own_lvl = self._encode_board_stat(self.enemy_board, "level")
+            opp_hp = self._encode_board_stat(self.player_board, "hp", self.revealed_player_tiles)
+            opp_damage = self._encode_board_stat(self.player_board, "damage", self.revealed_player_tiles)
+            opp_range = self._encode_board_stat(self.player_board, "range", self.revealed_player_tiles)
+            opp_aps = self._encode_board_stat(self.player_board, "aps", self.revealed_player_tiles)
+            opp_lvl = self._encode_board_stat(self.player_board, "level", self.revealed_player_tiles)
             
-        # 4. 핸드 정보 (가변적이지만 벡터화)
+        # 4. 핸드 정보 (dice type index 제거, stat 요약 고정 길이)
         hand = self.player_hand if is_player else self.enemy_hand
-        hand_counts = np.zeros(len(self.dice_types), dtype=np.float32)
-        for dt in hand:
-            idx = self.dice_type_to_index.get(dt)
-            if idx is not None:
-                hand_counts[idx] += 1.0
+        hand_stats = self._encode_hand_stat_summary(hand)
                 
         # 5. 라운드 결과
         res = self.last_round_result if is_player else -self.last_round_result
         res_val = np.array([1.0 if res == 1 else (-1.0 if res == -1 else -0.1)], dtype=np.float32)
-        
-        return np.concatenate([common, map_info, own_types, own_lvls, opp_types, opp_lvls, hand_counts, res_val])
+
+        spatial = np.concatenate([
+            map_info,
+            own_hp, own_damage, own_range, own_aps, own_lvl,
+            opp_hp, opp_damage, opp_range, opp_aps, opp_lvl
+        ]).astype(np.float32)
+
+        state = np.concatenate([common, spatial, hand_stats, res_val]).astype(np.float32)
+        if state.shape[0] != STATE_SIZE:
+            raise RuntimeError(f"Invalid state size: expected {STATE_SIZE}, got {state.shape[0]}")
+        return state
