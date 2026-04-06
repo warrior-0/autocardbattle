@@ -22,9 +22,9 @@ public class BattleMessageController {
 
     @MessageMapping("/battle/{roomId}/place")
     public void handlePlacement(@DestinationVariable String roomId, BattleMessage message) {
-        if ("PLACE".equals(message.getType())) {
-            messagingTemplate.convertAndSend("/topic/battle/" + roomId, message);
-        }
+        // 상대에게 실시간 배치/합성 정보를 노출하지 않기 위해
+        // PLACE/MERGE 이벤트는 즉시 브로드캐스트하지 않고 서버 상태에만 반영합니다.
+        // 실제 전체 배치 공개는 BattleService의 REVEAL 단계에서만 전송됩니다.
         battleService.processBattle(roomId, message);
     }
     
