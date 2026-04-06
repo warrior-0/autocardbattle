@@ -247,16 +247,12 @@ class AITrainer:
         return cloned
 
     def _network_l2_norm(self):
-        return float(np.sqrt(
-            np.sum(self.network.w1 ** 2) +
-            np.sum(self.network.b1 ** 2) +
-            np.sum(self.network.w2 ** 2) +
-            np.sum(self.network.b2 ** 2) +
-            np.sum(self.network.w3 ** 2) +
-            np.sum(self.network.b3 ** 2) +
-            np.sum(self.network.vw ** 2) +
-            np.sum(self.network.vb ** 2)
-        ))
+        sd = self.network.state_dict()
+        sq_sum = 0.0
+        for _, value in sd.items():
+            arr = np.array(value, dtype=np.float32)
+            sq_sum += float(np.sum(arr * arr))
+        return float(np.sqrt(sq_sum))
 
     def _apply_hyperparam_schedule(self):
         decay_steps = max(0, int(self.total_trained_episodes))
