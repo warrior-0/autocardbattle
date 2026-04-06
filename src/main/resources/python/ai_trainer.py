@@ -247,11 +247,22 @@ class AITrainer:
         return cloned
 
     def _network_l2_norm(self):
-        sd = self.network.state_dict()
         sq_sum = 0.0
-        for _, value in sd.items():
-            arr = np.array(value, dtype=np.float32)
-            sq_sum += float(np.sum(arr * arr))
+
+        params = [
+            self.network.conv1_w, self.network.conv1_b,
+            self.network.conv2_w, self.network.conv2_b,
+            self.network.spatial_fc_w, self.network.spatial_fc_b,
+            self.network.non_fc1_w, self.network.non_fc1_b,
+            self.network.non_fc2_w, self.network.non_fc2_b,
+            self.network.fuse_w, self.network.fuse_b,
+            self.network.policy_w, self.network.policy_b,
+            self.network.value_w, self.network.value_b,
+        ]
+
+        for p in params:
+            sq_sum += float(np.sum(p * p))
+
         return float(np.sqrt(sq_sum))
 
     def _apply_hyperparam_schedule(self):
