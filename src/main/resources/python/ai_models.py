@@ -41,17 +41,18 @@ class PPONetwork:
     NumPy 기반 PPO Actor-Critic 네트워크.
 
     Hybrid 구조:
-    - Spatial 입력: map/own_types/own_lvls/opp_types/opp_lvls -> (5, 8, 8) CNN
-    - Non-spatial 입력: common + hand_counts + result -> MLP
+    - Spatial 입력: map + own/opp unit stat channels -> (N, 8, 8) CNN
+    - Non-spatial 입력: common + hand_stat_summary + result -> MLP
     - 두 경로를 concat 후 policy/value head 출력
 
     PPO update 루프/인터페이스는 기존과 동일하게 유지.
     """
 
-    SPATIAL_CHANNELS = 5
+    SPATIAL_CHANNELS = 11  # map + own(5 stats) + opp(5 stats)
     MAP_TILES = 64
-    SPATIAL_SIZE = SPATIAL_CHANNELS * MAP_TILES  # 320
+    SPATIAL_SIZE = SPATIAL_CHANNELS * MAP_TILES
     COMMON_SIZE = 4
+    NON_SPATIAL_SIZE = 6  # hand_stat_summary(5) + result(1)
 
     def __init__(
         self,
@@ -71,13 +72,14 @@ class PPONetwork:
         self.value_coef = value_coef
         self.target_kl = target_kl
 
-        if state_size < self.SPATIAL_SIZE + self.COMMON_SIZE + 1:
-            raise ValueError(f"state_size({state_size}) is too small for hybrid split")
+        expected = self.COMMON_SIZE + self.SPATIAL_SIZE + self.NON_SPATIAL_SIZE
+        if state_size != expected:
+            raise ValueError(f"state_size({state_size}) must be exactly {expected} for fixed hybrid split")
 
-        # common(4) + hand_counts(variable) + result(1)
-        self.non_spatial_size = state_size - self.SPATIAL_SIZE
+        # common(4) + hand_stat_summary(5) + result(1)
+        self.non_spatial_size = self.COMMON_SIZE + self.NON_SPATIAL_SIZE
 
-        # CNN branch: (5,8,8) -> conv -> conv -> flatten -> fc
+        # CNN branch: (N,8,8) -> conv -> conv -> flatten -> fc
         self.conv1_w = np.random.randn(16, self.SPATIAL_CHANNELS, 3, 3) * np.sqrt(2.0 / (self.SPATIAL_CHANNELS * 3 * 3))
         self.conv1_b = np.zeros((16,), dtype=np.float32)
         self.conv2_w = np.random.randn(32, 16, 3, 3) * np.sqrt(2.0 / (16 * 3 * 3))
@@ -155,24 +157,13 @@ class PPONetwork:
             x2 = x
 
         common = x2[:, :self.COMMON_SIZE]
-        map_start = self.COMMON_SIZE
-        map_end = map_start + self.MAP_TILES
-        own_types_end = map_end + self.MAP_TILES
-        own_lvls_end = own_types_end + self.MAP_TILES
-        opp_types_end = own_lvls_end + self.MAP_TILES
-        opp_lvls_end = opp_types_end + self.MAP_TILES
-
-        map_info = x2[:, map_start:map_end]
-        own_types = x2[:, map_end:own_types_end]
-        own_lvls = x2[:, own_types_end:own_lvls_end]
-        opp_types = x2[:, own_lvls_end:opp_types_end]
-        opp_lvls = x2[:, opp_types_end:opp_lvls_end]
-
-        hand_and_result = x2[:, opp_lvls_end:]
+        spatial_start = self.COMMON_SIZE
+        spatial_end = spatial_start + self.SPATIAL_SIZE
+        spatial_flat = x2[:, spatial_start:spatial_end]
+        hand_and_result = x2[:, spatial_end:spatial_end + self.NON_SPATIAL_SIZE]
         non_spatial = np.concatenate([common, hand_and_result], axis=1)
 
-        spatial = np.stack([map_info, own_types, own_lvls, opp_types, opp_lvls], axis=1)
-        spatial = spatial.reshape(x2.shape[0], self.SPATIAL_CHANNELS, 8, 8)
+        spatial = spatial_flat.reshape(x2.shape[0], self.SPATIAL_CHANNELS, 8, 8)
         return spatial.astype(np.float32), non_spatial.astype(np.float32)
 
     def _forward_internal(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -412,7 +403,6 @@ class PPONetwork:
                 legacy_w3 = to_numpy(state_dict["net.4.weight"])
                 legacy_b3 = to_numpy(state_dict["net.4.bias"]).reshape(-1, 1)
 
-                # hybrid의 non-spatial branch에 legacy 초반 일부를 이식
                 rows = min(self.non_fc1_w.shape[0], legacy_w1.shape[0])
                 cols = min(self.non_fc1_w.shape[1], legacy_w1.shape[1])
                 self.non_fc1_w[:rows, :cols] = legacy_w1[:rows, :cols]
