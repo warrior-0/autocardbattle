@@ -331,26 +331,17 @@ public class BattleService {
     }
 
     private List<String> consumeAndRefillHand(GameState state, String userUid, String consumedDiceType) {
-        List<String> hand = new ArrayList<>(state.currentHands.getOrDefault(userUid, drawNewHand(state, userUid)));
-
-        if (consumedDiceType != null && !consumedDiceType.isBlank()) {
-            hand.remove(consumedDiceType);
-        }
-
-        List<String> deck = getOrLoadDeck(state, userUid);
-        List<String> refill = drawUniqueCards(deck, HAND_SIZE - hand.size(), new HashSet<>(hand));
-        hand.addAll(refill);
-
-        if (hand.size() > HAND_SIZE) {
-            hand = new ArrayList<>(hand.subList(0, HAND_SIZE));
-        }
-
+        // [수정] 배치할 때마다 기존 핸드를 유지하지 않고, 덱에서 완전히 새로 2장을 뽑아 전달합니다.
+        // 이전 핸드와의 중복은 허용하되, 새로 뽑는 2장 사이의 중복은 drawUniqueCards 로직에 따라 방지될 수 있습니다.
+        List<String> hand = drawNewHand(state, userUid);
+        
         state.currentHands.put(userUid, hand);
         return new ArrayList<>(hand);
     }
 
     private List<String> drawNewHand(GameState state, String userUid) {
         List<String> deck = getOrLoadDeck(state, userUid);
+        // [수정] 덱에서 중복 없이 무작위로 2장을 뽑습니다.
         List<String> hand = drawUniqueCards(deck, HAND_SIZE, Collections.emptySet());
         state.currentHands.put(userUid, hand);
         return new ArrayList<>(hand);
