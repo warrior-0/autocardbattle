@@ -503,6 +503,7 @@ class AITrainer:
         pending_trajectories = []
         episodes_since_update = 0
         window_start_norm = self._network_l2_norm()
+        last_update_weight_delta = 0.0
 
         # 학습 0판 기준 best_model을 먼저 GitHub에 반영
         if self.total_trained_episodes == 0:
@@ -516,6 +517,7 @@ class AITrainer:
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=True)
 
         def flush_batch_if_needed(force=False):
+            nonlocal last_update_weight_delta
             nonlocal total_loss, loss_count, total_kl, kl_count, weight_delta_sum, pending_trajectories, episodes_since_update
             if not pending_trajectories:
                 return
@@ -525,6 +527,7 @@ class AITrainer:
             before_norm = self._network_l2_norm()
             update_stats = self.train_on_episode(pending_trajectories)
             after_norm = self._network_l2_norm()
+            last_update_weight_delta = abs(after_norm - before_norm)
 
             if isinstance(update_stats, dict):
                 total_loss += float(update_stats.get("loss", 0.0))
