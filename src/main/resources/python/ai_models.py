@@ -266,7 +266,9 @@ class PPONetwork:
         z_n2 = np.dot(self.non_fc2_w, a_n1) + self.non_fc2_b
         a_n2 = self._relu(z_n2)
 
-        fused = np.vstack([a_sp, a_n2])
+        fused = np.empty((128 + 64, a_sp.shape[1]), dtype=np.float32)
+        fused[:128] = a_sp
+        fused[128:] = a_n2
         z_f = np.dot(self.fuse_w, fused) + self.fuse_b
         a_f = self._relu(z_f)
 
