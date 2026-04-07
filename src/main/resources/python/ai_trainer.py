@@ -467,7 +467,7 @@ class AITrainer:
             win_rate = wins / (wins + draws + losses)
             if i % 10 == 0:
                 print(
-                    f"[Eval] Progress: {i}/{eval_episodes}, wins: {wins}, losses: {losses}, Draws: {draws}, win_rate = {win_rate}, elapsed_time: {round(time.time() - start_time, 2)}",
+                    f"[Eval] Progress: {i}/{eval_episodes}, wins: {wins}, losses: {losses}, Draws: {draws}, win_rate = {round(win_rate, 2)}, elapsed_time: {round(time.time() - start_time, 2)}",
                     flush=True
                 )
         
@@ -613,7 +613,7 @@ class AITrainer:
                     "wins": total_wins,
                     "losses": total_losses,
                     "draws": total_draws,
-                    "win_rate": round(total_wins / total_games, 4),
+                    "win_rate": round(total_wins / total_games, 2),
                     "elapsed_time": round(time.time() - start_time, 2),
                     "learning_rate": round(float(self.network.learning_rate), 8),
                     "entropy_coef": round(float(self.network.entropy_coef), 8),
@@ -653,7 +653,7 @@ class AITrainer:
                     "wins": total_wins,
                     "losses": total_losses,
                     "draws": total_draws,
-                    "win_rate": round(total_wins / total_games, 4),
+                    "win_rate": round(total_wins / total_games, 2),
                     "elapsed_time": round(time.time() - start_time, 2),
                     "learning_rate": round(float(self.network.learning_rate), 8),
                     "entropy_coef": round(float(self.network.entropy_coef), 8),
