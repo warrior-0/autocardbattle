@@ -36,6 +36,64 @@ def _masked_softmax_numba(logits: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return out
 
 
+def _randn_f32(shape: tuple[int, ...], scale: float) -> np.ndarray:
+    return (np.random.randn(*shape) * scale).astype(np.float32)
+
+
+@njit(cache=True)
+def _conv2d_same_forward_numba(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
+    bs, in_ch, h, wid = x.shape
+    out_ch, _, k, _ = w.shape
+    pad = k // 2
+
+    x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
+    out = np.zeros((bs, out_ch, h, wid), dtype=np.float32)
+    for n in range(bs):
+        for oc in range(out_ch):
+            for i in range(h):
+                for j in range(wid):
+                    s = 0.0
+                    for ic in range(in_ch):
+                        for ki in range(k):
+                            for kj in range(k):
+                                s += x_pad[n, ic, i + ki, j + kj] * w[oc, ic, ki, kj]
+                    out[n, oc, i, j] = s + b[oc]
+    return out
+
+
+@njit(cache=True)
+def _conv2d_same_backward_numba(
+    x: np.ndarray,
+    w: np.ndarray,
+    dout: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    bs, in_ch, h, wid = x.shape
+    out_ch, _, k, _ = w.shape
+    pad = k // 2
+
+    x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
+    dx_pad = np.zeros_like(x_pad, dtype=np.float32)
+    dw = np.zeros_like(w, dtype=np.float32)
+    db = np.sum(dout, axis=(0, 2, 3))
+
+    for n in range(bs):
+        for oc in range(out_ch):
+            for i in range(h):
+                for j in range(wid):
+                    g = dout[n, oc, i, j]
+                    for ic in range(in_ch):
+                        for ki in range(k):
+                            for kj in range(k):
+                                dw[oc, ic, ki, kj] += x_pad[n, ic, i + ki, j + kj] * g
+                                dx_pad[n, ic, i + ki, j + kj] += w[oc, ic, ki, kj] * g
+
+    if pad > 0:
+        dx = dx_pad[:, :, pad:-pad, pad:-pad]
+    else:
+        dx = dx_pad
+    return dx, dw, db
+
+
 class PPONetwork:
     """
     NumPy 기반 PPO Actor-Critic 네트워크.
@@ -80,25 +138,25 @@ class PPONetwork:
         self.non_spatial_size = self.COMMON_SIZE + self.NON_SPATIAL_SIZE
 
         # CNN branch: (N,8,8) -> conv -> conv -> flatten -> fc
-        self.conv1_w = np.random.randn(16, self.SPATIAL_CHANNELS, 3, 3) * np.sqrt(2.0 / (self.SPATIAL_CHANNELS * 3 * 3))
+        self.conv1_w = _randn_f32((16, self.SPATIAL_CHANNELS, 3, 3), np.sqrt(2.0 / (self.SPATIAL_CHANNELS * 3 * 3)))
         self.conv1_b = np.zeros((16,), dtype=np.float32)
-        self.conv2_w = np.random.randn(32, 16, 3, 3) * np.sqrt(2.0 / (16 * 3 * 3))
+        self.conv2_w = _randn_f32((32, 16, 3, 3), np.sqrt(2.0 / (16 * 3 * 3)))
         self.conv2_b = np.zeros((32,), dtype=np.float32)
-        self.spatial_fc_w = np.random.randn(128, 32 * 8 * 8) * np.sqrt(2.0 / (32 * 8 * 8))
+        self.spatial_fc_w = _randn_f32((128, 32 * 8 * 8), np.sqrt(2.0 / (32 * 8 * 8)))
         self.spatial_fc_b = np.zeros((128, 1), dtype=np.float32)
 
         # Non-spatial branch: MLP
-        self.non_fc1_w = np.random.randn(64, self.non_spatial_size) * np.sqrt(2.0 / self.non_spatial_size)
+        self.non_fc1_w = _randn_f32((64, self.non_spatial_size), np.sqrt(2.0 / self.non_spatial_size))
         self.non_fc1_b = np.zeros((64, 1), dtype=np.float32)
-        self.non_fc2_w = np.random.randn(64, 64) * np.sqrt(2.0 / 64)
+        self.non_fc2_w = _randn_f32((64, 64), np.sqrt(2.0 / 64))
         self.non_fc2_b = np.zeros((64, 1), dtype=np.float32)
 
         # Fusion + heads
-        self.fuse_w = np.random.randn(128, 128 + 64) * np.sqrt(2.0 / (128 + 64))
+        self.fuse_w = _randn_f32((128, 128 + 64), np.sqrt(2.0 / (128 + 64)))
         self.fuse_b = np.zeros((128, 1), dtype=np.float32)
-        self.policy_w = np.random.randn(action_size, 128) * np.sqrt(2.0 / 128)
+        self.policy_w = _randn_f32((action_size, 128), np.sqrt(2.0 / 128))
         self.policy_b = np.zeros((action_size, 1), dtype=np.float32)
-        self.value_w = np.random.randn(1, 128) * np.sqrt(2.0 / 128)
+        self.value_w = _randn_f32((1, 128), np.sqrt(2.0 / 128))
         self.value_b = np.zeros((1, 1), dtype=np.float32)
 
         self.cache: Dict[str, np.ndarray] = {}
@@ -109,16 +167,7 @@ class PPONetwork:
 
     @staticmethod
     def _conv2d_same_forward(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
-        bs, in_ch, h, wid = x.shape
-        out_ch, _, k, _ = w.shape
-        pad = k // 2
-        x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
-        out = np.zeros((bs, out_ch, h, wid), dtype=np.float32)
-        for i in range(h):
-            for j in range(wid):
-                region = x_pad[:, :, i:i + k, j:j + k]  # (bs,in_ch,k,k)
-                out[:, :, i, j] = np.tensordot(region, w, axes=([1, 2, 3], [1, 2, 3])) + b
-        return out
+        return _conv2d_same_forward_numba(x, w, b)
 
     @staticmethod
     def _conv2d_same_backward(
@@ -126,29 +175,7 @@ class PPONetwork:
         w: np.ndarray,
         dout: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        bs, in_ch, h, wid = x.shape
-        out_ch, _, k, _ = w.shape
-        pad = k // 2
-
-        x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
-        dx_pad = np.zeros_like(x_pad, dtype=np.float32)
-        dw = np.zeros_like(w, dtype=np.float32)
-        db = np.sum(dout, axis=(0, 2, 3))
-
-        for i in range(h):
-            for j in range(wid):
-                region = x_pad[:, :, i:i + k, j:j + k]  # (bs,in_ch,k,k)
-                for oc in range(out_ch):
-                    grad = dout[:, oc, i, j].reshape(bs, 1, 1, 1)
-                    dw[oc] += np.sum(region * grad, axis=0)
-                for n in range(bs):
-                    dx_pad[n, :, i:i + k, j:j + k] += np.sum(w * dout[n, :, i, j][:, None, None, None], axis=0)
-
-        if pad > 0:
-            dx = dx_pad[:, :, pad:-pad, pad:-pad]
-        else:
-            dx = dx_pad
-        return dx, dw, db
+        return _conv2d_same_backward_numba(x, w, dout)
 
     def _split_state(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         if x.ndim == 1:
@@ -279,9 +306,7 @@ class PPONetwork:
                 loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
 
                 use_unclipped = unclipped <= clipped
-                dL_dlogp = np.zeros(bs, dtype=np.float32)
-                dL_dlogp[use_unclipped] = -(adv[use_unclipped] * ratio[use_unclipped]) / bs
-                dL_dlogp[~use_unclipped] = -(adv[~use_unclipped] * clipped_ratio[~use_unclipped]) / bs
+                dL_dlogp = -np.where(use_unclipped, adv * ratio, adv * clipped_ratio).astype(np.float32) / bs
 
                 one_hot = np.zeros_like(probs)
                 one_hot[np.arange(bs), a_idx] = 1.0
