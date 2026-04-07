@@ -40,24 +40,35 @@ def _randn_f32(shape: tuple[int, ...], scale: float) -> np.ndarray:
     return (np.random.randn(*shape) * scale).astype(np.float32)
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _conv2d_same_forward_numba(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
     bs, in_ch, h, wid = x.shape
     out_ch, _, k, _ = w.shape
     pad = k // 2
 
-    x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
     out = np.zeros((bs, out_ch, h, wid), dtype=np.float32)
+
     for n in range(bs):
         for oc in range(out_ch):
-            for i in range(h):
-                for j in range(wid):
-                    s = 0.0
-                    for ic in range(in_ch):
+            for ic in range(in_ch):
+                for i in range(h):
+                    for j in range(wid):
+                        s = 0.0
                         for ki in range(k):
                             for kj in range(k):
-                                s += x_pad[n, ic, i + ki, j + kj] * w[oc, ic, ki, kj]
-                    out[n, oc, i, j] = s + b[oc]
+                                ii = i + ki - pad
+                                jj = j + kj - pad
+
+                                if 0 <= ii < h and 0 <= jj < wid:
+                                    s += x[n, ic, ii, jj] * w[oc, ic, ki, kj]
+
+                        out[n, oc, i, j] += s
+
+            # bias 더하기 (한 번만)
+            for i in range(h):
+                for j in range(wid):
+                    out[n, oc, i, j] += b[oc]
+
     return out
 
 
