@@ -56,6 +56,8 @@ class PPONetwork:
     EXTRA_SPATIAL_CHANNELS = 4  # x, y, nearest_own_dist, nearest_opp_dist
     MAP_TILES = 64
     SPATIAL_SIZE = SPATIAL_CHANNELS * MAP_TILES
+    SPATIAL_HIDDEN1 = 256
+    SPATIAL_HIDDEN2 = 512
     COMMON_SIZE = 4
     NON_SPATIAL_SIZE = 6  # hand_stat_summary(5) + result(1)
 
@@ -90,11 +92,11 @@ class PPONetwork:
         self._grid_coords = np.stack([grid_y.reshape(-1), grid_x.reshape(-1)], axis=1).astype(np.int32)
 
         # Spatial branch: 완전 MLP (CNN 연산/구조 미사용)
-        self.spatial_mlp1_w = _randn_f32((512, self.spatial_input_size), np.sqrt(2.0 / self.spatial_input_size))
-        self.spatial_mlp1_b = np.zeros((512, 1), dtype=np.float32)
-        self.spatial_mlp2_w = _randn_f32((32 * 8 * 8, 512), np.sqrt(2.0 / 512))
-        self.spatial_mlp2_b = np.zeros((32 * 8 * 8, 1), dtype=np.float32)
-        self.spatial_fc_w = _randn_f32((128, 32 * 8 * 8), np.sqrt(2.0 / (32 * 8 * 8)))
+        self.spatial_mlp1_w = _randn_f32((self.SPATIAL_HIDDEN1, self.spatial_input_size), np.sqrt(2.0 / self.spatial_input_size))
+        self.spatial_mlp1_b = np.zeros((self.SPATIAL_HIDDEN1, 1), dtype=np.float32)
+        self.spatial_mlp2_w = _randn_f32((self.SPATIAL_HIDDEN2, self.SPATIAL_HIDDEN1), np.sqrt(2.0 / self.SPATIAL_HIDDEN1))
+        self.spatial_mlp2_b = np.zeros((self.SPATIAL_HIDDEN2, 1), dtype=np.float32)
+        self.spatial_fc_w = _randn_f32((128, self.SPATIAL_HIDDEN2), np.sqrt(2.0 / self.SPATIAL_HIDDEN2))
         self.spatial_fc_b = np.zeros((128, 1), dtype=np.float32)
 
         # Non-spatial branch: MLP
@@ -163,7 +165,7 @@ class PPONetwork:
 
     def _forward_internal(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         spatial_flat_input, non_spatial = self._split_state(x)
-        spatial_in = spatial_flat_input.T  # (704,bs)
+        spatial_in = spatial_flat_input.T  # (spatial_input_size, bs)
         z_sm1 = np.dot(self.spatial_mlp1_w, spatial_in) + self.spatial_mlp1_b
         a_sm1 = self._relu(z_sm1)
         z_sm2 = np.dot(self.spatial_mlp2_w, a_sm1) + self.spatial_mlp2_b
@@ -187,25 +189,19 @@ class PPONetwork:
         values = np.dot(self.value_w, a_f) + self.value_b
 
         self.cache = {
-            "spatial_flat_input": spatial_flat_input,
             "spatial_in": spatial_in,
             "z_sm1": z_sm1,
             "a_sm1": a_sm1,
             "z_sm2": z_sm2,
-            "a_sm2": a_sm2,
             "spatial_flat": spatial_flat,
             "z_sp": z_sp,
-            "a_sp": a_sp,
             "non_in": non_in,
             "z_n1": z_n1,
             "a_n1": a_n1,
             "z_n2": z_n2,
-            "a_n2": a_n2,
             "fused": fused,
             "z_f": z_f,
             "a_f": a_f,
-            "logits": logits,
-            "values": values,
         }
         return logits.T, values.T
 
