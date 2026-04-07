@@ -3,12 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Literal, Sequence, Tuple, Optional
-from collections import deque
 import json
 import os
 import random
 import time
 import numpy as np
+try:
+    from numba import njit
+except Exception:  # pragma: no cover - numba가 없는 환경 호환
+    def njit(*args, **kwargs):  # type: ignore
+        def _decorator(func):
+            return func
+        return _decorator
 
 # =========================
 # Grid / Game constants
@@ -36,6 +42,289 @@ UNIT_STAT_FEATURES = 5  # hp, damage, range, aps, level
 SPATIAL_CHANNELS = 1 + (UNIT_STAT_FEATURES * 2)  # map + own(5) + opp(5) = 11
 NON_SPATIAL_FEATURES = 5 + 1  # hand_stat_agg(5) + last_result(1)
 STATE_SIZE = COMMON_FEATURES + (SPATIAL_CHANNELS * TOTAL_TILES) + NON_SPATIAL_FEATURES
+
+TYPE_NORMAL = 0
+TYPE_FIRE = 1
+TYPE_SNIPER = 2
+TYPE_ELECTRIC = 3
+TYPE_WATER = 4
+TYPE_IRON = 5
+TYPE_SHIELD = 6
+
+
+@njit(cache=True)
+def _compute_dist_matrix_numba(tiles: np.ndarray) -> np.ndarray:
+    n = tiles.shape[0]
+    dist = np.zeros((n, n), dtype=np.int32)
+    xs = np.empty(n, dtype=np.int32)
+    ys = np.empty(n, dtype=np.int32)
+    for i in range(n):
+        t = int(tiles[i])
+        xs[i] = t % GRID_SIZE
+        ys[i] = t // GRID_SIZE
+    for i in range(n):
+        for j in range(n):
+            dx = xs[i] - xs[j]
+            if dx < 0:
+                dx = -dx
+            dy = ys[i] - ys[j]
+            if dy < 0:
+                dy = -dy
+            dist[i, j] = dx if dx > dy else dy
+    return dist
+
+
+@njit(cache=True)
+def _build_scaled_stats_numba(
+    levels: np.ndarray,
+    type_indices: np.ndarray,
+    catalog_hp: np.ndarray,
+    catalog_damage: np.ndarray,
+    catalog_range: np.ndarray,
+    catalog_aps: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    n = levels.shape[0]
+    hp = np.zeros(n, dtype=np.int32)
+    damage = np.zeros(n, dtype=np.int32)
+    base_aps = np.zeros(n, dtype=np.float32)
+    ranges = np.zeros(n, dtype=np.int32)
+    for i in range(n):
+        level = levels[i]
+        idx = type_indices[i]
+        lv_scale = 1.0 + 0.7 * (level - 1)
+        atk_scale = 1.0 + 0.2 * (level - 1)
+        hp[i] = int(catalog_hp[idx] * lv_scale)
+        damage[i] = int(catalog_damage[idx] * lv_scale)
+        base_aps[i] = np.float32(catalog_aps[idx] * atk_scale)
+        ranges[i] = catalog_range[idx]
+    return hp, damage, base_aps, ranges
+
+
+@njit(cache=True)
+def _simulate_combat_loop_numba(
+    owners: np.ndarray,
+    levels: np.ndarray,
+    type_codes: np.ndarray,
+    hp: np.ndarray,
+    damage: np.ndarray,
+    base_aps: np.ndarray,
+    ranges: np.ndarray,
+    dist_matrix: np.ndarray,
+) -> np.ndarray:
+    num_units = hp.shape[0]
+    aps = base_aps.copy()
+    next_attack_time = np.zeros(num_units, dtype=np.float32)
+    current_target_idx = np.full(num_units, -1, dtype=np.int32)
+    water_stacks = np.zeros(num_units, dtype=np.int32)
+    water_debuff_end = np.zeros(num_units, dtype=np.float32)
+
+    # 지연 데미지 큐 (FIFO): time, target_idx, damage
+    max_events = 300000
+    q_time = np.zeros(max_events, dtype=np.int32)
+    q_target = np.zeros(max_events, dtype=np.int32)
+    q_dmg = np.zeros(max_events, dtype=np.int32)
+    q_head = 0
+    q_tail = 0
+    projectile_delay = 300
+
+    alive = np.zeros(num_units, dtype=np.bool_)
+    player_alive_count = 0
+    enemy_alive_count = 0
+    attacker_indices = np.empty(num_units, dtype=np.int32)
+    enemies_in_range = np.empty(num_units, dtype=np.int32)
+    closest_candidates = np.empty(num_units, dtype=np.int32)
+    splash_targets = np.empty(num_units, dtype=np.int32)
+    chain_targets = np.empty(num_units, dtype=np.int32)
+    taunt_targets = np.empty(num_units, dtype=np.int32)
+
+    for time_ms in range(0, 30000, 100):
+        while q_head < q_tail and q_time[q_head] <= time_ms:
+            t_idx = q_target[q_head]
+            dmg = q_dmg[q_head]
+            new_hp = hp[t_idx] - dmg
+            hp[t_idx] = new_hp if new_hp > 0 else 0
+            q_head += 1
+
+        player_alive_count = 0
+        enemy_alive_count = 0
+        for i in range(num_units):
+            alive[i] = hp[i] > 0
+            if alive[i]:
+                if owners[i] == 0:
+                    player_alive_count += 1
+                else:
+                    enemy_alive_count += 1
+        if player_alive_count == 0 or enemy_alive_count == 0:
+            break
+
+        can_attack_any = False
+        for i in range(num_units):
+            if not alive[i]:
+                continue
+            for j in range(num_units):
+                if alive[j] and owners[i] != owners[j] and dist_matrix[i, j] <= ranges[i]:
+                    can_attack_any = True
+                    break
+            if can_attack_any:
+                break
+        if not can_attack_any:
+            break
+
+        for i in range(num_units):
+            if water_stacks[i] > 0 and time_ms > water_debuff_end[i]:
+                water_stacks[i] = 0
+                aps[i] = base_aps[i]
+
+        attacker_count = 0
+        for i in range(num_units):
+            if alive[i] and time_ms >= next_attack_time[i]:
+                attacker_indices[attacker_count] = i
+                attacker_count += 1
+        if attacker_count == 0:
+            continue
+
+        for k in range(attacker_count - 1, 0, -1):
+            r = np.random.randint(0, k + 1)
+            tmp = attacker_indices[k]
+            attacker_indices[k] = attacker_indices[r]
+            attacker_indices[r] = tmp
+
+        for a in range(attacker_count):
+            i = attacker_indices[a]
+            if not alive[i]:
+                continue
+            u_owner = owners[i]
+            u_range = ranges[i]
+            u_type = type_codes[i]
+
+            curr_target = current_target_idx[i]
+            if curr_target == -1 or (not alive[curr_target]) or dist_matrix[i, curr_target] > u_range:
+                e_count = 0
+                min_dist = 1_000_000
+                for j in range(num_units):
+                    if alive[j] and owners[j] != u_owner and dist_matrix[i, j] <= u_range:
+                        enemies_in_range[e_count] = j
+                        e_count += 1
+                        d = dist_matrix[i, j]
+                        if d < min_dist:
+                            min_dist = d
+                if e_count > 0:
+                    c_count = 0
+                    for idx in range(e_count):
+                        j = enemies_in_range[idx]
+                        if dist_matrix[i, j] == min_dist:
+                            closest_candidates[c_count] = j
+                            c_count += 1
+                    pick = closest_candidates[np.random.randint(0, c_count)]
+                    curr_target = pick
+                    current_target_idx[i] = pick
+                else:
+                    curr_target = -1
+                    current_target_idx[i] = -1
+
+            if curr_target == -1:
+                continue
+
+            t_idx = curr_target
+            dmg = damage[i]
+            u_level = levels[i]
+            u_n = u_level - 1
+            arrival_time = time_ms + projectile_delay
+
+            if arrival_time >= 30000:
+                next_attack_time[i] = time_ms + 1000.0 / aps[i]
+                continue
+
+            if u_type == TYPE_FIRE:
+                if q_tail < max_events:
+                    q_time[q_tail] = arrival_time
+                    q_target[q_tail] = t_idx
+                    q_dmg[q_tail] = dmg
+                    q_tail += 1
+                splash_dmg = 20 + 20 * u_level
+                s_count = 0
+                for j in range(num_units):
+                    if alive[j] and owners[j] != u_owner and dist_matrix[t_idx, j] <= 1:
+                        splash_targets[s_count] = j
+                        s_count += 1
+                for s in range(s_count):
+                    if q_tail < max_events:
+                        q_time[q_tail] = arrival_time
+                        q_target[q_tail] = splash_targets[s]
+                        q_dmg[q_tail] = splash_dmg
+                        q_tail += 1
+            elif u_type == TYPE_SNIPER:
+                dist = dist_matrix[i, t_idx]
+                final_dmg = int(dmg * (dist * 0.3 * (1.0 + 0.1 * u_n) + 1.0))
+                if q_tail < max_events:
+                    q_time[q_tail] = arrival_time
+                    q_target[q_tail] = t_idx
+                    q_dmg[q_tail] = final_dmg
+                    q_tail += 1
+            elif u_type == TYPE_ELECTRIC:
+                if q_tail < max_events:
+                    q_time[q_tail] = arrival_time
+                    q_target[q_tail] = t_idx
+                    q_dmg[q_tail] = dmg
+                    q_tail += 1
+                chain_dmg = 25 + 25 * u_level
+                c_count = 0
+                for j in range(num_units):
+                    if alive[j] and owners[j] != u_owner and j != t_idx and dist_matrix[t_idx, j] <= 1:
+                        chain_targets[c_count] = j
+                        c_count += 1
+                if c_count > 0:
+                    best = chain_targets[0]
+                    best_dist = dist_matrix[t_idx, best]
+                    for c in range(1, c_count):
+                        j = chain_targets[c]
+                        d = dist_matrix[t_idx, j]
+                        if d < best_dist:
+                            best = j
+                            best_dist = d
+                    if q_tail < max_events:
+                        q_time[q_tail] = arrival_time
+                        q_target[q_tail] = best
+                        q_dmg[q_tail] = chain_dmg
+                        q_tail += 1
+            elif u_type == TYPE_WATER:
+                if q_tail < max_events:
+                    q_time[q_tail] = arrival_time
+                    q_target[q_tail] = t_idx
+                    q_dmg[q_tail] = dmg
+                    q_tail += 1
+                ws = water_stacks[t_idx] + 1
+                water_stacks[t_idx] = ws if ws < 3 else 3
+                water_debuff_end[t_idx] = arrival_time + 3000
+                reduction = (0.12 * (1.0 + 0.1 * u_n)) * water_stacks[t_idx]
+                if reduction > 0.9:
+                    reduction = 0.9
+                aps[t_idx] = base_aps[t_idx] * (1.0 - reduction)
+            elif u_type == TYPE_IRON:
+                bonus = int(hp[t_idx] * 0.1 * (1.0 + 0.1 * u_n))
+                if q_tail < max_events:
+                    q_time[q_tail] = arrival_time
+                    q_target[q_tail] = t_idx
+                    q_dmg[q_tail] = dmg + bonus
+                    q_tail += 1
+            elif u_type == TYPE_SHIELD:
+                tt_count = 0
+                for j in range(num_units):
+                    if alive[j] and owners[j] != u_owner and dist_matrix[i, j] <= 2:
+                        taunt_targets[tt_count] = j
+                        tt_count += 1
+                for t in range(tt_count):
+                    current_target_idx[taunt_targets[t]] = i
+            else:
+                if q_tail < max_events:
+                    q_time[q_tail] = arrival_time
+                    q_target[q_tail] = t_idx
+                    q_dmg[q_tail] = dmg
+                    q_tail += 1
+
+            next_attack_time[i] = time_ms + 1000.0 / aps[i]
+
+    return hp
 
 
 @dataclass(frozen=True)
@@ -166,6 +455,10 @@ class GameSimulator:
         self.dice_by_type: Dict[str, DiceStat] = {d.dice_type: d for d in self.dice_catalog}
         self.dice_types = tuple(d.dice_type for d in self.dice_catalog)
         self.dice_type_to_index = {dt: i for i, dt in enumerate(self.dice_types)}
+        self.catalog_hp = np.array([d.hp for d in self.dice_catalog], dtype=np.int32)
+        self.catalog_damage = np.array([d.damage for d in self.dice_catalog], dtype=np.int32)
+        self.catalog_range = np.array([d.attack_range for d in self.dice_catalog], dtype=np.int32)
+        self.catalog_aps = np.array([d.aps for d in self.dice_catalog], dtype=np.float32)
         self.max_hp = max(1.0, max(float(d.hp) for d in self.dice_catalog))
         self.max_damage = max(1.0, max(float(d.damage) for d in self.dice_catalog))
         self.max_range = max(1.0, max(float(d.attack_range) for d in self.dice_catalog))
@@ -323,148 +616,56 @@ class GameSimulator:
         tiles = np.array([p.tile for p in placements], dtype=np.int32)
         levels = np.array([p.level for p in placements], dtype=np.int32)
         types = [p.dice_type for p in placements]
-        
-        # 유닛 스탯 벡터화 로딩
-        hp = np.zeros(num_units, dtype=np.int32)
-        damage = np.zeros(num_units, dtype=np.int32)
-        base_aps = np.zeros(num_units, dtype=np.float32)
-        ranges = np.zeros(num_units, dtype=np.int32)
-        
-        # 미리 주사위 스탯을 배열로 변환하여 루프 내 사전 조회를 최소화
-        for i, p in enumerate(placements):
-            s = self.dice_by_type[p.dice_type]
-            n = p.level - 1
-            hp[i] = int(s.hp * (1.0 + 0.7 * n))
-            damage[i] = int(s.damage * (1.0 + 0.7 * n))
-            base_aps[i] = s.aps * (1.0 + 0.2 * n)
-            ranges[i] = s.attack_range
+        type_indices = np.array([self.dice_type_to_index[p.dice_type] for p in placements], dtype=np.int32)
+        type_codes = np.array([self._type_to_code(t) for t in types], dtype=np.int32)
 
-        aps = base_aps.copy()
-        next_attack_time = np.zeros(num_units, dtype=np.float32)
-        current_target_idx = np.full(num_units, -1, dtype=np.int32)
-        water_stacks = np.zeros(num_units, dtype=np.int32)
-        water_debuff_end = np.zeros(num_units, dtype=np.float32)
-        
-        pos = np.stack([tiles % GRID_SIZE, tiles // GRID_SIZE], axis=1)
-        # 거리 행렬 미리 계산
-        diff = np.abs(pos[:, np.newaxis, :] - pos[np.newaxis, :, :])
-        dist_matrix = np.max(diff, axis=2)
+        # Numba JIT: 전투 시작 시 스탯 스케일링과 거리 행렬 계산 고속화
+        hp, damage, base_aps, ranges = _build_scaled_stats_numba(
+            levels,
+            type_indices,
+            self.catalog_hp,
+            self.catalog_damage,
+            self.catalog_range,
+            self.catalog_aps,
+        )
+
+        # 거리 행렬 미리 계산 (Numba JIT)
+        dist_matrix = _compute_dist_matrix_numba(tiles)
         
         initial_hp_sum = {"player": int(np.sum(hp[owners == 0])), "enemy": int(np.sum(hp[owners == 1]))}
-
-        # [지연 반영] 데미지 큐 (도착 시간, 대상 인덱스, 데미지 양)
-        damage_queue = deque()
-        PROJECTILE_DELAY = 300 # 300ms 지연
-
-        for time_ms in range(0, 30000, 100):
-            # 1. 지연된 데미지 반영 (큐에서 현재 시간에 도달한 데미지 처리)
-            while damage_queue and damage_queue[0][0] <= time_ms:
-                _, t_idx, dmg = damage_queue.popleft()
-                hp[t_idx] = max(0, hp[t_idx] - dmg)
-
-            alive = hp > 0
-            # 양측 생존 확인 (벡터화)
-            player_alive = alive & (owners == 0)
-            enemy_alive = alive & (owners == 1)
-            if not np.any(player_alive) or not np.any(enemy_alive):
-                break
-                
-            # [최적화] 교착 상태 감지 벡터화
-            can_attack_mask = (dist_matrix <= ranges[:, np.newaxis]) & (owners[:, np.newaxis] != owners[np.newaxis, :]) & alive[np.newaxis, :] & alive[:, np.newaxis]
-            if not np.any(can_attack_mask):
-                break
-                
-            # 워터 디버프 종료 처리 (벡터화)
-            water_expired = (water_stacks > 0) & (time_ms > water_debuff_end)
-            if np.any(water_expired):
-                water_stacks[water_expired] = 0
-                aps[water_expired] = base_aps[water_expired]
-                
-            # 공격 가능 유닛 선별 (벡터화)
-            can_attack = alive & (time_ms >= next_attack_time)
-            if not np.any(can_attack):
-                continue
-                
-            attacker_indices = np.where(can_attack)[0]
-            self.random.shuffle(attacker_indices)
-            
-            for i in attacker_indices:
-                u_owner = owners[i]
-                u_range = ranges[i]
-                u_type = types[i]
-                
-                # 타겟팅 로직 (벡터화된 거리 행렬 활용)
-                curr_target = current_target_idx[i]
-                if curr_target == -1 or not alive[curr_target] or dist_matrix[i, curr_target] > u_range:
-                    # 사거리 내 적군 필터링
-                    enemies_in_range = np.where(alive & (owners != u_owner) & (dist_matrix[i] <= u_range))[0]
-                    if enemies_in_range.size > 0:
-                        dists = dist_matrix[i, enemies_in_range]
-                        min_dist = np.min(dists)
-                        closest = enemies_in_range[dists == min_dist]
-                        curr_target = self.random.choice(closest)
-                        current_target_idx[i] = curr_target
-                    else:
-                        curr_target = -1
-                        current_target_idx[i] = -1
-                        
-                if curr_target != -1:
-                    t_idx = curr_target
-                    dmg = damage[i]
-                    u_level = levels[i]
-                    u_n = u_level - 1
-                    arrival_time = time_ms + PROJECTILE_DELAY
-                    
-                    # 30,000ms를 넘어서 도달하는 투사체는 무효화 (반영하지 않음)
-                    if arrival_time >= 30000:
-                        next_attack_time[i] = time_ms + 1000.0 / aps[i]
-                        continue
-
-                    # 타입별 특수 효과 처리 (데미지를 즉시 깎지 않 큐에 삽입)
-                    if u_type == "FIRE":
-                        damage_queue.append((arrival_time, t_idx, dmg))
-                        splash_dmg = 20 + 20 * u_level
-                        in_splash = np.where(alive & (owners != u_owner) & (dist_matrix[t_idx] <= 1))[0]
-                        for s_idx in in_splash:
-                            damage_queue.append((arrival_time, s_idx, splash_dmg))
-                    elif u_type == "SNIPER":
-                        dist = dist_matrix[i, t_idx]
-                        final_dmg = int(dmg * (dist * 0.3 * (1.0 + 0.1 * u_n) + 1))
-                        damage_queue.append((arrival_time, t_idx, final_dmg))
-                    elif u_type == "ELECTRIC":
-                        damage_queue.append((arrival_time, t_idx, dmg))
-                        chain_dmg = 25 + 25 * u_level
-                        potential_chains = np.where(alive & (owners != u_owner) & (np.arange(num_units) != t_idx) & (dist_matrix[t_idx] <= 1))[0]
-                        if potential_chains.size > 0:
-                            c_idx = potential_chains[np.argmin(dist_matrix[t_idx, potential_chains])]
-                            damage_queue.append((arrival_time, c_idx, chain_dmg))
-                    elif u_type == "WATER":
-                        damage_queue.append((arrival_time, t_idx, dmg))
-                        # 디버프는 투사체가 '도달'했을 때 걸리도록 처리
-                        # (단, 구현 단순화를 위해 큐에 디버프 이벤트를 넣는 대신 
-                        #  도달 시점에 맞춰 워터 스택을 계산하는 로직은 복잡하므로 
-                        #  여기서는 데미지만 지연시키고 디버프는 즉시 적용하거나, 
-                        #  디버프 종료 시간을 arrival_time 기준으로 설정)
-                        water_stacks[t_idx] = min(3, water_stacks[t_idx] + 1)
-                        water_debuff_end[t_idx] = arrival_time + 3000
-                        reduction = min(0.9, (0.12 * (1.0 + 0.1 * u_n)) * water_stacks[t_idx])
-                        aps[t_idx] = base_aps[t_idx] * (1.0 - reduction)
-                    elif u_type == "IRON":
-                        bonus = int(hp[t_idx] * 0.1 * (1.0 + 0.1 * u_n))
-                        damage_queue.append((arrival_time, t_idx, dmg + bonus))
-                    elif u_type == "SHIELD":
-                        in_taunt_range = alive & (owners != u_owner) & (dist_matrix[i] <= 2)
-                        current_target_idx[in_taunt_range] = i
-                    else:
-                        damage_queue.append((arrival_time, t_idx, dmg))
-                        
-                    next_attack_time[i] = time_ms + 1000.0 / aps[i]
+        # 전투 루프 자체를 Numba로 실행
+        hp = _simulate_combat_loop_numba(
+            owners,
+            levels,
+            type_codes,
+            hp,
+            damage,
+            base_aps,
+            ranges,
+            dist_matrix,
+        )
 
         alive_final = hp > 0
         survivors = {"player": int(np.sum(alive_final[owners == 0])), "enemy": int(np.sum(alive_final[owners == 1]))}
         remaining_hp = {"player": int(np.sum(hp[owners == 0])), "enemy": int(np.sum(hp[owners == 1]))}
         winner = 1 if survivors["player"] > survivors["enemy"] else -1 if survivors["enemy"] > survivors["player"] else 0
         return winner, survivors, logs, remaining_hp, initial_hp_sum
+
+    @staticmethod
+    def _type_to_code(dice_type: str) -> int:
+        if dice_type == "FIRE":
+            return TYPE_FIRE
+        if dice_type == "SNIPER":
+            return TYPE_SNIPER
+        if dice_type == "ELECTRIC":
+            return TYPE_ELECTRIC
+        if dice_type == "WATER":
+            return TYPE_WATER
+        if dice_type == "IRON":
+            return TYPE_IRON
+        if dice_type == "SHIELD":
+            return TYPE_SHIELD
+        return TYPE_NORMAL
 
     def _resolve_round(self) -> Tuple[int, Dict[str, float]]:
         # 전투가 발생했으므로, 양측 보드의 상태를 라운드 종료 시점 정보로 공개
