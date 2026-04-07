@@ -72,36 +72,42 @@ def _conv2d_same_forward_numba(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> n
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _conv2d_same_backward_numba(
     x: np.ndarray,
     w: np.ndarray,
     dout: np.ndarray,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+):
     bs, in_ch, h, wid = x.shape
     out_ch, _, k, _ = w.shape
     pad = k // 2
 
-    x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
-    dx_pad = np.zeros_like(x_pad, dtype=np.float32)
+    dx = np.zeros_like(x, dtype=np.float32)
     dw = np.zeros_like(w, dtype=np.float32)
-    db = np.sum(dout, axis=(0, 2, 3))
+    db = np.zeros((out_ch,), dtype=np.float32)
 
     for n in range(bs):
         for oc in range(out_ch):
             for i in range(h):
                 for j in range(wid):
                     g = dout[n, oc, i, j]
+
+                    # bias grad
+                    db[oc] += g
+
                     for ic in range(in_ch):
                         for ki in range(k):
                             for kj in range(k):
-                                dw[oc, ic, ki, kj] += x_pad[n, ic, i + ki, j + kj] * g
-                                dx_pad[n, ic, i + ki, j + kj] += w[oc, ic, ki, kj] * g
+                                ii = i + ki - pad
+                                jj = j + kj - pad
 
-    if pad > 0:
-        dx = dx_pad[:, :, pad:-pad, pad:-pad]
-    else:
-        dx = dx_pad
+                                if 0 <= ii < h and 0 <= jj < wid:
+                                    # weight gradient
+                                    dw[oc, ic, ki, kj] += x[n, ic, ii, jj] * g
+
+                                    # input gradient
+                                    dx[n, ic, ii, jj] += w[oc, ic, ki, kj] * g
+
     return dx, dw, db
 
 
