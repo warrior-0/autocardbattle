@@ -599,7 +599,6 @@ class AITrainer:
                 print(json.dumps({
                     "episode": ep,
                     "total_episode": self.total_trained_episodes,
-                    "reward": round(ep_reward, 2),
                     "avg_reward": round(reward_window_sum / max(1, log_interval), 2),
                     "avg_loss": round(avg_loss, 6),
                     "avg_kl": round(avg_kl, 6),
