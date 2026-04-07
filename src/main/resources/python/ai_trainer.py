@@ -440,7 +440,7 @@ class AITrainer:
             self.pending_network = self._clone_network(self.network)
             print(f"[AITrainer] Episode {ep}: Current model saved as pending.", flush=True)
 
-    def evaluate_model(self, eval_episodes=1000):
+    def evaluate_model(self, start_time, eval_episodes=1000):
         """별도의 승급전(Evaluation)을 수행합니다. (학습 없음)"""
         self._load_best_model_if_exists()
         print(f"[AITrainer] Starting evaluation: Current vs Best for {eval_episodes} games...", flush=True)
@@ -463,13 +463,14 @@ class AITrainer:
                 draws += 1
             else:
                 losses += 1
+
+            win_rate = wins / (wins + draws + losses)
             if i % 10 == 0:
                 print(
-                    f"[Eval] Progress: {i}/{eval_episodes}, Wins: {wins}, Draws: {draws}, Losses: {losses}",
+                    f"[Eval] Progress: {i}/{eval_episodes}, wins: {wins}, losses: {losses}, Draws: {draws}, win_rate = {win_rate}, elapsed_time: {round(time.time() - start_time, 2)}",
                     flush=True
                 )
         
-        win_rate = wins / eval_episodes
         promoted = win_rate >= self.replace_rate
         if promoted:
             self.best_network = self._clone_network(self.network)
@@ -512,7 +513,7 @@ class AITrainer:
         # 시작 전 미결된 승급전이 있는지 체크
         if self.needs_evaluation:
             print("[AITrainer] Unfinished evaluation found. Running evaluation first...", flush=True)
-            promoted = self.evaluate_model()
+            promoted = self.evaluate_model(start_time)
             if promoted:
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=True)
 
@@ -672,7 +673,7 @@ class AITrainer:
                 self.sync_to_github(root_dir, rel_model_path, self.total_trained_episodes, include_best_model=False)
 
                 # 3. 승급전 행 (독립적 1000판)
-                promoted = self.evaluate_model()
+                promoted = self.evaluate_model(start_time)
 
                 # 4. historical_networks 갱신 및 적 후보군 업데이트
                 # (이제 historical_networks에는 pending을 제외한 1000~5000 모델만 로드됨)
