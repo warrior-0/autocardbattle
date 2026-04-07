@@ -597,8 +597,10 @@ class AITrainer:
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
                 avg_kl = total_kl / max(1, kl_count)
-                current_norm = self._network_l2_norm()
-                avg_weight_delta = abs(current_norm - window_start_norm)
+                if is_update_step:
+                    avg_weight_delta = last_update_weight_delta
+                else:
+                    avg_weight_delta = 0.0
 
                 print(json.dumps({
                     "episode": ep,
@@ -626,7 +628,6 @@ class AITrainer:
                 loss_count = 0
                 total_kl = 0.0
                 kl_count = 0
-                window_start_norm = current_norm
 
             # 1000판 단위 처리
             if self.total_trained_episodes % 1000 == 0:
@@ -636,8 +637,10 @@ class AITrainer:
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
                 avg_kl = total_kl / max(1, kl_count)
-                current_norm = self._network_l2_norm()
-                avg_weight_delta = abs(current_norm - window_start_norm)
+                if is_update_step:
+                    avg_weight_delta = last_update_weight_delta
+                else:
+                    avg_weight_delta = 0.0
 
                 print(json.dumps({
                     "episode": ep,
