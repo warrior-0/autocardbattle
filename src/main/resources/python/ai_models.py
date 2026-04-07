@@ -7,11 +7,18 @@ import numpy as np
 _numba_spec = importlib.util.find_spec("numba")
 if _numba_spec is not None:
     njit = importlib.import_module("numba").njit
+    prange = importlib.import_module("numba").prange
+    _HAS_NUMBA = True
 else:
     def njit(*args, **kwargs):
         def _decorator(func):
             return func
         return _decorator
+
+    def prange(*args):
+        return range(*args)
+
+    _HAS_NUMBA = False
 
 
 @njit(cache=True)
@@ -34,6 +41,118 @@ def _masked_softmax_numba(logits: np.ndarray, mask: np.ndarray) -> np.ndarray:
         for j in range(action_size):
             out[i, j] = out[i, j] / denom
     return out
+
+
+@njit(cache=True, parallel=True)
+def _im2col_same_numba(x: np.ndarray, k: int) -> np.ndarray:
+    bs, in_ch, h, wid = x.shape
+    pad = k // 2
+    cols = np.zeros((bs, h * wid, in_ch * k * k), dtype=np.float32)
+
+    for b in prange(bs):
+        for oy in range(h):
+            for ox in range(wid):
+                out_idx = oy * wid + ox
+                col_idx = 0
+                for c in range(in_ch):
+                    for ky in range(k):
+                        iy = oy + ky - pad
+                        for kx in range(k):
+                            ix = ox + kx - pad
+                            if 0 <= iy < h and 0 <= ix < wid:
+                                cols[b, out_idx, col_idx] = x[b, c, iy, ix]
+                            else:
+                                cols[b, out_idx, col_idx] = 0.0
+                            col_idx += 1
+    return cols
+
+
+@njit(cache=True, parallel=True)
+def _col2im_same_numba(cols: np.ndarray, x_shape: Tuple[int, int, int, int], k: int) -> np.ndarray:
+    bs, in_ch, h, wid = x_shape
+    pad = k // 2
+    dx = np.zeros((bs, in_ch, h, wid), dtype=np.float32)
+
+    for b in prange(bs):
+        for oy in range(h):
+            for ox in range(wid):
+                out_idx = oy * wid + ox
+                col_idx = 0
+                for c in range(in_ch):
+                    for ky in range(k):
+                        iy = oy + ky - pad
+                        for kx in range(k):
+                            ix = ox + kx - pad
+                            if 0 <= iy < h and 0 <= ix < wid:
+                                dx[b, c, iy, ix] += cols[b, out_idx, col_idx]
+                            col_idx += 1
+    return dx
+
+
+@njit(cache=True, parallel=True)
+def _conv2d_same_forward_numba(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
+    bs, in_ch, h, wid = x.shape
+    out_ch, _, k, _ = w.shape
+    cols = _im2col_same_numba(x, k)
+    w_col = w.reshape(out_ch, in_ch * k * k)
+    out = np.zeros((bs, out_ch, h, wid), dtype=np.float32)
+
+    for bb in prange(bs):
+        for s in range(h * wid):
+            oy = s // wid
+            ox = s % wid
+            for oc in range(out_ch):
+                acc = b[oc]
+                for i in range(in_ch * k * k):
+                    acc += cols[bb, s, i] * w_col[oc, i]
+                out[bb, oc, oy, ox] = acc
+    return out
+
+
+@njit(cache=True, parallel=True)
+def _conv2d_same_backward_numba(
+    x: np.ndarray,
+    w: np.ndarray,
+    dout: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    bs, in_ch, h, wid = x.shape
+    out_ch, _, k, _ = w.shape
+    cols = _im2col_same_numba(x, k)  # (bs, h*wid, in_ch*k*k)
+    w_col = w.reshape(out_ch, in_ch * k * k)
+    dout_col = np.zeros((bs, h * wid, out_ch), dtype=np.float32)
+
+    for bb in prange(bs):
+        for oy in range(h):
+            for ox in range(wid):
+                s = oy * wid + ox
+                for oc in range(out_ch):
+                    dout_col[bb, s, oc] = dout[bb, oc, oy, ox]
+
+    dw_col = np.zeros((out_ch, in_ch * k * k), dtype=np.float32)
+    db = np.zeros((out_ch,), dtype=np.float32)
+
+    for oc in prange(out_ch):
+        bsum = 0.0
+        for bb in range(bs):
+            for s in range(h * wid):
+                grad = dout_col[bb, s, oc]
+                bsum += grad
+                for i in range(in_ch * k * k):
+                    dw_col[oc, i] += grad * cols[bb, s, i]
+        db[oc] = bsum
+
+    dcols = np.zeros((bs, h * wid, in_ch * k * k), dtype=np.float32)
+    for bb in prange(bs):
+        for s in range(h * wid):
+            for i in range(in_ch * k * k):
+                acc = 0.0
+                for oc in range(out_ch):
+                    acc += dout_col[bb, s, oc] * w_col[oc, i]
+                dcols[bb, s, i] = acc
+
+    dx = _col2im_same_numba(dcols, x.shape, k)
+    dw = dw_col.reshape(w.shape)
+    return dx, dw, db
 
 
 class PPONetwork:
@@ -108,17 +227,56 @@ class PPONetwork:
         return np.maximum(0.0, x)
 
     @staticmethod
-    def _conv2d_same_forward(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
+    def _im2col_same(x: np.ndarray, k: int) -> np.ndarray:
+        if _HAS_NUMBA:
+            return _im2col_same_numba(x, k)
         bs, in_ch, h, wid = x.shape
-        out_ch, _, k, _ = w.shape
         pad = k // 2
         x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
-        out = np.zeros((bs, out_ch, h, wid), dtype=np.float32)
-        for i in range(h):
-            for j in range(wid):
-                region = x_pad[:, :, i:i + k, j:j + k]  # (bs,in_ch,k,k)
-                out[:, :, i, j] = np.tensordot(region, w, axes=([1, 2, 3], [1, 2, 3])) + b
-        return out
+        s0, s1, s2, s3 = x_pad.strides
+        cols = np.lib.stride_tricks.as_strided(
+            x_pad,
+            shape=(bs, in_ch, h, wid, k, k),
+            strides=(s0, s1, s2, s3, s2, s3),
+            writeable=False,
+        )
+        return cols.transpose(0, 2, 3, 1, 4, 5).reshape(bs, h * wid, in_ch * k * k)
+
+    @staticmethod
+    def _col2im_same(cols: np.ndarray, x_shape: Tuple[int, int, int, int], k: int) -> np.ndarray:
+        if _HAS_NUMBA:
+            return _col2im_same_numba(cols, x_shape, k)
+        bs, in_ch, h, wid = x_shape
+        pad = k // 2
+        h_pad, w_pad = h + 2 * pad, wid + 2 * pad
+
+        cols_reshaped = cols.reshape(bs, h, wid, in_ch, k, k).transpose(0, 3, 1, 2, 4, 5)
+        dx_pad = np.zeros((bs, in_ch, h_pad, w_pad), dtype=np.float32)
+
+        row_idx = np.arange(h)[:, None] + np.arange(k)[None, :]
+        col_idx = np.arange(wid)[:, None] + np.arange(k)[None, :]
+
+        for ki in range(k):
+            rows = row_idx[:, ki][:, None]
+            for kj in range(k):
+                cols_idx = col_idx[:, kj][None, :]
+                patch = cols_reshaped[:, :, :, :, ki, kj]
+                np.add.at(dx_pad, (slice(None), slice(None), rows, cols_idx), patch)
+
+        if pad > 0:
+            return dx_pad[:, :, pad:-pad, pad:-pad]
+        return dx_pad
+
+    @staticmethod
+    def _conv2d_same_forward(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
+        if _HAS_NUMBA:
+            return _conv2d_same_forward_numba(x, w, b)
+        bs, in_ch, h, wid = x.shape
+        out_ch, _, k, _ = w.shape
+        cols = PPONetwork._im2col_same(x, k)  # (bs, h*wid, in_ch*k*k)
+        w_col = w.reshape(out_ch, in_ch * k * k)  # (out_ch, in_ch*k*k)
+        out = cols @ w_col.T + b.reshape(1, 1, out_ch)
+        return out.reshape(bs, h, wid, out_ch).transpose(0, 3, 1, 2).astype(np.float32)
 
     @staticmethod
     def _conv2d_same_backward(
@@ -126,29 +284,21 @@ class PPONetwork:
         w: np.ndarray,
         dout: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if _HAS_NUMBA:
+            return _conv2d_same_backward_numba(x, w, dout)
         bs, in_ch, h, wid = x.shape
         out_ch, _, k, _ = w.shape
-        pad = k // 2
+        cols = PPONetwork._im2col_same(x, k)  # (bs, h*wid, in_ch*k*k)
+        dout_col = dout.transpose(0, 2, 3, 1).reshape(bs, h * wid, out_ch)
+        w_col = w.reshape(out_ch, in_ch * k * k)
 
-        x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), mode="constant")
-        dx_pad = np.zeros_like(x_pad, dtype=np.float32)
-        dw = np.zeros_like(w, dtype=np.float32)
+        dw_col = np.einsum("bso,bsi->oi", dout_col, cols)
+        dw = dw_col.reshape(w.shape).astype(np.float32)
         db = np.sum(dout, axis=(0, 2, 3))
 
-        for i in range(h):
-            for j in range(wid):
-                region = x_pad[:, :, i:i + k, j:j + k]  # (bs,in_ch,k,k)
-                for oc in range(out_ch):
-                    grad = dout[:, oc, i, j].reshape(bs, 1, 1, 1)
-                    dw[oc] += np.sum(region * grad, axis=0)
-                for n in range(bs):
-                    dx_pad[n, :, i:i + k, j:j + k] += np.sum(w * dout[n, :, i, j][:, None, None, None], axis=0)
-
-        if pad > 0:
-            dx = dx_pad[:, :, pad:-pad, pad:-pad]
-        else:
-            dx = dx_pad
-        return dx, dw, db
+        dcols = np.einsum("bso,oi->bsi", dout_col, w_col).astype(np.float32)
+        dx = PPONetwork._col2im_same(dcols, x.shape, k)
+        return dx, dw, db.astype(np.float32)
 
     def _split_state(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         if x.ndim == 1:
