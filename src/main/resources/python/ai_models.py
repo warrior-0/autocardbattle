@@ -40,79 +40,12 @@ def _randn_f32(shape: tuple[int, ...], scale: float) -> np.ndarray:
     return (np.random.randn(*shape) * scale).astype(np.float32)
 
 
-@njit(cache=True, fastmath=True)
-def _conv2d_same_forward_numba(x, w, b):
-    bs, in_ch, h, wid = x.shape
-    out_ch, _, k, _ = w.shape
-    pad = k // 2
-
-    out = np.zeros((bs, out_ch, h, wid), dtype=np.float32)
-
-    for n in range(bs):
-        for oc in range(out_ch):
-            for i in range(h):
-                for j in range(wid):
-
-                    s = 0.0
-
-                    for ic in range(in_ch):
-                        for ki in range(k):
-                            for kj in range(k):
-
-                                ii = i + ki - pad
-                                jj = j + kj - pad
-
-                                if 0 <= ii < h and 0 <= jj < wid:
-                                    s += x[n, ic, ii, jj] * w[oc, ic, ki, kj]
-
-                    out[n, oc, i, j] = s + b[oc]
-    return out
-
-@njit(cache=True, fastmath=True)
-def _conv2d_same_backward_numba(
-    x: np.ndarray,
-    w: np.ndarray,
-    dout: np.ndarray,
-):
-    bs, in_ch, h, wid = x.shape
-    out_ch, _, k, _ = w.shape
-    pad = k // 2
-
-    dx = np.zeros_like(x, dtype=np.float32)
-    dw = np.zeros_like(w, dtype=np.float32)
-    db = np.zeros((out_ch,), dtype=np.float32)
-
-    for n in range(bs):
-        for oc in range(out_ch):
-            for i in range(h):
-                for j in range(wid):
-                    g = dout[n, oc, i, j]
-
-                    # bias grad
-                    db[oc] += g
-
-                    for ic in range(in_ch):
-                        for ki in range(k):
-                            for kj in range(k):
-                                ii = i + ki - pad
-                                jj = j + kj - pad
-
-                                if 0 <= ii < h and 0 <= jj < wid:
-                                    # weight gradient
-                                    dw[oc, ic, ki, kj] += x[n, ic, ii, jj] * g
-
-                                    # input gradient
-                                    dx[n, ic, ii, jj] += w[oc, ic, ki, kj] * g
-
-    return dx, dw, db
-
-
 class PPONetwork:
     """
     NumPy 기반 PPO Actor-Critic 네트워크.
 
     Hybrid 구조:
-    - Spatial 입력: map + own/opp unit stat channels -> (N, 8, 8) CNN
+    - Spatial 입력: map + own/opp unit stat channels(주사위별 정보 포함) -> flattened MLP
     - Non-spatial 입력: common + hand_stat_summary + result -> MLP
     - 두 경로를 concat 후 policy/value head 출력
 
@@ -120,6 +53,7 @@ class PPONetwork:
     """
 
     SPATIAL_CHANNELS = 11  # map + own(5 stats) + opp(5 stats)
+    EXTRA_SPATIAL_CHANNELS = 4  # x, y, nearest_own_dist, nearest_opp_dist
     MAP_TILES = 64
     SPATIAL_SIZE = SPATIAL_CHANNELS * MAP_TILES
     COMMON_SIZE = 4
@@ -149,12 +83,17 @@ class PPONetwork:
 
         # common(4) + hand_stat_summary(5) + result(1)
         self.non_spatial_size = self.COMMON_SIZE + self.NON_SPATIAL_SIZE
+        self.spatial_input_size = (self.SPATIAL_CHANNELS + self.EXTRA_SPATIAL_CHANNELS) * self.MAP_TILES
+        grid_y, grid_x = np.indices((8, 8), dtype=np.float32)
+        self._x_channel = ((grid_x / 7.0) * 2.0 - 1.0).astype(np.float32)
+        self._y_channel = ((grid_y / 7.0) * 2.0 - 1.0).astype(np.float32)
+        self._grid_coords = np.stack([grid_y.reshape(-1), grid_x.reshape(-1)], axis=1).astype(np.int32)
 
-        # CNN branch: (N,8,8) -> conv -> conv -> flatten -> fc
-        self.conv1_w = _randn_f32((16, self.SPATIAL_CHANNELS, 3, 3), np.sqrt(2.0 / (self.SPATIAL_CHANNELS * 3 * 3)))
-        self.conv1_b = np.zeros((16,), dtype=np.float32)
-        self.conv2_w = _randn_f32((32, 16, 3, 3), np.sqrt(2.0 / (16 * 3 * 3)))
-        self.conv2_b = np.zeros((32,), dtype=np.float32)
+        # Spatial branch: 완전 MLP (CNN 연산/구조 미사용)
+        self.spatial_mlp1_w = _randn_f32((512, self.spatial_input_size), np.sqrt(2.0 / self.spatial_input_size))
+        self.spatial_mlp1_b = np.zeros((512, 1), dtype=np.float32)
+        self.spatial_mlp2_w = _randn_f32((32 * 8 * 8, 512), np.sqrt(2.0 / 512))
+        self.spatial_mlp2_b = np.zeros((32 * 8 * 8, 1), dtype=np.float32)
         self.spatial_fc_w = _randn_f32((128, 32 * 8 * 8), np.sqrt(2.0 / (32 * 8 * 8)))
         self.spatial_fc_b = np.zeros((128, 1), dtype=np.float32)
 
@@ -178,17 +117,30 @@ class PPONetwork:
     def _relu(x: np.ndarray) -> np.ndarray:
         return np.maximum(0.0, x)
 
-    @staticmethod
-    def _conv2d_same_forward(x: np.ndarray, w: np.ndarray, b: np.ndarray) -> np.ndarray:
-        return _conv2d_same_forward_numba(x, w, b)
+    def _nearest_distance_channel(self, mask_2d: np.ndarray) -> np.ndarray:
+        occupied = np.argwhere(mask_2d > 0.5)
+        if occupied.shape[0] == 0:
+            return np.ones((8, 8), dtype=np.float32)
+        d = np.abs(self._grid_coords[:, None, :] - occupied[None, :, :]).sum(axis=2)
+        nearest = np.min(d, axis=1).astype(np.float32) / 14.0
+        return nearest.reshape(8, 8)
 
-    @staticmethod
-    def _conv2d_same_backward(
-        x: np.ndarray,
-        w: np.ndarray,
-        dout: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        return _conv2d_same_backward_numba(x, w, dout)
+    def _augment_spatial_features(self, spatial: np.ndarray) -> np.ndarray:
+        bs = spatial.shape[0]
+        x_ch = np.broadcast_to(self._x_channel, (bs, 8, 8))
+        y_ch = np.broadcast_to(self._y_channel, (bs, 8, 8))
+
+        own_presence = (np.max(np.abs(spatial[:, 1:6, :, :]), axis=1) > 1e-6).astype(np.float32)
+        opp_presence = (np.max(np.abs(spatial[:, 6:11, :, :]), axis=1) > 1e-6).astype(np.float32)
+
+        own_dist = np.zeros((bs, 8, 8), dtype=np.float32)
+        opp_dist = np.zeros((bs, 8, 8), dtype=np.float32)
+        for i in range(bs):
+            own_dist[i] = self._nearest_distance_channel(own_presence[i])
+            opp_dist[i] = self._nearest_distance_channel(opp_presence[i])
+
+        extra = np.stack([x_ch, y_ch, own_dist, opp_dist], axis=1)
+        return np.concatenate([spatial, extra], axis=1).astype(np.float32)
 
     def _split_state(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         if x.ndim == 1:
@@ -202,22 +154,22 @@ class PPONetwork:
         spatial_start = self.COMMON_SIZE
         spatial_end = spatial_start + self.SPATIAL_SIZE
         spatial_flat = x2[:, spatial_start:spatial_end]
+        spatial = spatial_flat.reshape(x2.shape[0], self.SPATIAL_CHANNELS, 8, 8).astype(np.float32)
+        spatial_aug = self._augment_spatial_features(spatial)
+        spatial_flat_aug = spatial_aug.reshape(x2.shape[0], -1)
         hand_and_result = x2[:, spatial_end:spatial_end + self.NON_SPATIAL_SIZE]
         non_spatial = np.concatenate([common, hand_and_result], axis=1)
-
-        spatial = spatial_flat.reshape(x2.shape[0], self.SPATIAL_CHANNELS, 8, 8)
-        return spatial.astype(np.float32), non_spatial.astype(np.float32)
+        return spatial_flat_aug.astype(np.float32), non_spatial.astype(np.float32)
 
     def _forward_internal(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        spatial, non_spatial = self._split_state(x)
+        spatial_flat_input, non_spatial = self._split_state(x)
+        spatial_in = spatial_flat_input.T  # (704,bs)
+        z_sm1 = np.dot(self.spatial_mlp1_w, spatial_in) + self.spatial_mlp1_b
+        a_sm1 = self._relu(z_sm1)
+        z_sm2 = np.dot(self.spatial_mlp2_w, a_sm1) + self.spatial_mlp2_b
+        a_sm2 = self._relu(z_sm2)
 
-        c1 = self._conv2d_same_forward(spatial, self.conv1_w, self.conv1_b)
-        a_c1 = self._relu(c1)
-        c2 = self._conv2d_same_forward(a_c1, self.conv2_w, self.conv2_b)
-        a_c2 = self._relu(c2)
-
-        bs = spatial.shape[0]
-        spatial_flat = a_c2.reshape(bs, -1).T  # (2048,bs)
+        spatial_flat = a_sm2
         z_sp = np.dot(self.spatial_fc_w, spatial_flat) + self.spatial_fc_b
         a_sp = self._relu(z_sp)
 
@@ -235,11 +187,12 @@ class PPONetwork:
         values = np.dot(self.value_w, a_f) + self.value_b
 
         self.cache = {
-            "spatial": spatial,
-            "c1": c1,
-            "a_c1": a_c1,
-            "c2": c2,
-            "a_c2": a_c2,
+            "spatial_flat_input": spatial_flat_input,
+            "spatial_in": spatial_in,
+            "z_sm1": z_sm1,
+            "a_sm1": a_sm1,
+            "z_sm2": z_sm2,
+            "a_sm2": a_sm2,
             "spatial_flat": spatial_flat,
             "z_sp": z_sp,
             "a_sp": a_sp,
@@ -355,12 +308,13 @@ class PPONetwork:
                 dw_spatial_fc = np.dot(dz_sp, self.cache["spatial_flat"].T)
                 db_spatial_fc = np.sum(dz_sp, axis=1, keepdims=True)
                 dspatial_flat = np.dot(self.spatial_fc_w.T, dz_sp)
-                da_c2 = dspatial_flat.T.reshape(bs, 32, 8, 8)
-                dc2 = da_c2 * (self.cache["c2"] > 0)
-
-                da_c1, dw_conv2, db_conv2 = self._conv2d_same_backward(self.cache["a_c1"], self.conv2_w, dc2)
-                dc1 = da_c1 * (self.cache["c1"] > 0)
-                _, dw_conv1, db_conv1 = self._conv2d_same_backward(self.cache["spatial"], self.conv1_w, dc1)
+                dz_sm2 = dspatial_flat * (self.cache["z_sm2"] > 0)
+                dw_spatial_mlp2 = np.dot(dz_sm2, self.cache["a_sm1"].T)
+                db_spatial_mlp2 = np.sum(dz_sm2, axis=1, keepdims=True)
+                da_sm1 = np.dot(self.spatial_mlp2_w.T, dz_sm2)
+                dz_sm1 = da_sm1 * (self.cache["z_sm1"] > 0)
+                dw_spatial_mlp1 = np.dot(dz_sm1, self.cache["spatial_in"].T)
+                db_spatial_mlp1 = np.sum(dz_sm1, axis=1, keepdims=True)
 
                 dz_n2 = da_n2 * (self.cache["z_n2"] > 0)
                 dw_non_fc2 = np.dot(dz_n2, self.cache["a_n1"].T)
@@ -381,10 +335,10 @@ class PPONetwork:
 
                 self.spatial_fc_w -= lr * dw_spatial_fc
                 self.spatial_fc_b -= lr * db_spatial_fc
-                self.conv2_w -= lr * dw_conv2
-                self.conv2_b -= lr * db_conv2
-                self.conv1_w -= lr * dw_conv1
-                self.conv1_b -= lr * db_conv1
+                self.spatial_mlp2_w -= lr * dw_spatial_mlp2
+                self.spatial_mlp2_b -= lr * db_spatial_mlp2
+                self.spatial_mlp1_w -= lr * dw_spatial_mlp1
+                self.spatial_mlp1_b -= lr * db_spatial_mlp1
 
                 self.non_fc2_w -= lr * dw_non_fc2
                 self.non_fc2_b -= lr * db_non_fc2
@@ -407,19 +361,55 @@ class PPONetwork:
 
     def load_state_dict(self, state_dict: Dict[str, Any], strict: bool = True) -> None:
         try:
+            def copy_overlap(dst: np.ndarray, src: np.ndarray) -> np.ndarray:
+                out = np.array(dst, copy=True)
+                rows = min(out.shape[0], src.shape[0])
+                cols = min(out.shape[1], src.shape[1]) if out.ndim == 2 else 1
+                if out.ndim == 2:
+                    out[:rows, :cols] = src[:rows, :cols]
+                else:
+                    out[:rows] = src[:rows]
+                return out
+
             def to_numpy(v):
                 if hasattr(v, "detach"):
                     return v.detach().cpu().numpy()
                 return np.array(v, dtype=np.float32)
 
-            # New hybrid format
+            # Converted spatial MLP format
+            if "spatial_mlp1.weight" in state_dict:
+                self.spatial_mlp1_w = copy_overlap(self.spatial_mlp1_w, to_numpy(state_dict["spatial_mlp1.weight"]))
+                self.spatial_mlp1_b = copy_overlap(self.spatial_mlp1_b, to_numpy(state_dict["spatial_mlp1.bias"]).reshape(-1, 1))
+                self.spatial_mlp2_w = copy_overlap(self.spatial_mlp2_w, to_numpy(state_dict["spatial_mlp2.weight"]))
+                self.spatial_mlp2_b = copy_overlap(self.spatial_mlp2_b, to_numpy(state_dict["spatial_mlp2.bias"]).reshape(-1, 1))
+                self.spatial_fc_w = copy_overlap(self.spatial_fc_w, to_numpy(state_dict["spatial_fc.weight"]))
+                self.spatial_fc_b = copy_overlap(self.spatial_fc_b, to_numpy(state_dict["spatial_fc.bias"]).reshape(-1, 1))
+
+                self.non_fc1_w = to_numpy(state_dict["non_fc1.weight"])
+                self.non_fc1_b = to_numpy(state_dict["non_fc1.bias"]).reshape(-1, 1)
+                self.non_fc2_w = to_numpy(state_dict["non_fc2.weight"])
+                self.non_fc2_b = to_numpy(state_dict["non_fc2.bias"]).reshape(-1, 1)
+
+                self.fuse_w = to_numpy(state_dict["fuse.weight"])
+                self.fuse_b = to_numpy(state_dict["fuse.bias"]).reshape(-1, 1)
+                self.policy_w = to_numpy(state_dict["policy_head.weight"])
+                self.policy_b = to_numpy(state_dict["policy_head.bias"]).reshape(-1, 1)
+                self.value_w = to_numpy(state_dict["value_head.weight"])
+                self.value_b = to_numpy(state_dict["value_head.bias"]).reshape(1, 1)
+                self.action_size = self.policy_w.shape[0]
+                return
+
+            # Legacy hybrid(CNN) format:
+            # conv 계층은 구조가 달라 직접 로드하지 않고, 나머지 공용 계층은 최대한 재사용
             if "conv1.weight" in state_dict:
-                self.conv1_w = to_numpy(state_dict["conv1.weight"])
-                self.conv1_b = to_numpy(state_dict["conv1.bias"])
-                self.conv2_w = to_numpy(state_dict["conv2.weight"])
-                self.conv2_b = to_numpy(state_dict["conv2.bias"])
-                self.spatial_fc_w = to_numpy(state_dict["spatial_fc.weight"])
-                self.spatial_fc_b = to_numpy(state_dict["spatial_fc.bias"]).reshape(-1, 1)
+                if "spatial_fc.weight" in state_dict:
+                    spatial_fc_w = to_numpy(state_dict["spatial_fc.weight"])
+                    if spatial_fc_w.shape == self.spatial_fc_w.shape:
+                        self.spatial_fc_w = spatial_fc_w
+                if "spatial_fc.bias" in state_dict:
+                    spatial_fc_b = to_numpy(state_dict["spatial_fc.bias"]).reshape(-1, 1)
+                    if spatial_fc_b.shape == self.spatial_fc_b.shape:
+                        self.spatial_fc_b = spatial_fc_b
 
                 self.non_fc1_w = to_numpy(state_dict["non_fc1.weight"])
                 self.non_fc1_b = to_numpy(state_dict["non_fc1.bias"]).reshape(-1, 1)
@@ -481,10 +471,10 @@ class PPONetwork:
 
     def state_dict(self) -> Dict[str, Any]:
         return {
-            "conv1.weight": self.conv1_w.tolist(),
-            "conv1.bias": self.conv1_b.tolist(),
-            "conv2.weight": self.conv2_w.tolist(),
-            "conv2.bias": self.conv2_b.tolist(),
+            "spatial_mlp1.weight": self.spatial_mlp1_w.tolist(),
+            "spatial_mlp1.bias": self.spatial_mlp1_b.flatten().tolist(),
+            "spatial_mlp2.weight": self.spatial_mlp2_w.tolist(),
+            "spatial_mlp2.bias": self.spatial_mlp2_b.flatten().tolist(),
             "spatial_fc.weight": self.spatial_fc_w.tolist(),
             "spatial_fc.bias": self.spatial_fc_b.flatten().tolist(),
             "non_fc1.weight": self.non_fc1_w.tolist(),
