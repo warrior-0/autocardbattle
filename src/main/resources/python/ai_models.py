@@ -14,26 +14,13 @@ else:
         return _decorator
 
 
-@njit(cache=True)
 def _masked_softmax_numba(logits: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    bs, action_size = logits.shape
-    out = np.zeros((bs, action_size), dtype=np.float32)
-    for i in range(bs):
-        max_logit = -1e10
-        for j in range(action_size):
-            v = logits[i, j] if mask[i, j] > 0.5 else -1e10
-            if v > max_logit:
-                max_logit = v
-        s = 0.0
-        for j in range(action_size):
-            v = logits[i, j] if mask[i, j] > 0.5 else -1e10
-            e = np.exp(v - max_logit)
-            out[i, j] = e
-            s += e
-        denom = s + 1e-8
-        for j in range(action_size):
-            out[i, j] = out[i, j] / denom
-    return out
+    valid = (mask > 0.5).astype(np.float32)
+    masked = logits.astype(np.float32).copy()
+    masked[valid <= 0.5] = -1e10
+    m = np.max(masked, axis=1, keepdims=True)
+    exp_x = np.exp(masked - m) * valid
+    return exp_x / (np.sum(exp_x, axis=1, keepdims=True) + 1e-8)
 
 
 def _randn_f32(shape: tuple[int, ...], scale: float) -> np.ndarray:
@@ -45,21 +32,27 @@ def _conv2d_same_dilated_forward_numba(x, w, b, dilation):
     bs, in_ch, h, wid = x.shape
     out_ch, _, k, _ = w.shape
     pad = (k // 2) * dilation
+    x_pad = np.zeros((bs, in_ch, h + 2 * pad, wid + 2 * pad), dtype=np.float32)
+    x_pad[:, :, pad:pad + h, pad:pad + wid] = x
+
     out = np.zeros((bs, out_ch, h, wid), dtype=np.float32)
 
     for n in range(bs):
         for oc in range(out_ch):
             for i in range(h):
                 for j in range(wid):
-                    s = 0.0
-                    for ic in range(in_ch):
-                        for ki in range(k):
-                            for kj in range(k):
-                                ii = i + ki * dilation - pad
-                                jj = j + kj * dilation - pad
-                                if 0 <= ii < h and 0 <= jj < wid:
-                                    s += x[n, ic, ii, jj] * w[oc, ic, ki, kj]
-                    out[n, oc, i, j] = s + b[oc]
+                    out[n, oc, i, j] = b[oc]
+            for ic in range(in_ch):
+                for ki in range(k):
+                    for kj in range(k):
+                        wv = w[oc, ic, ki, kj]
+                        i_off = ki * dilation
+                        j_off = kj * dilation
+                        for i in range(h):
+                            ii = i + i_off
+                            for j in range(wid):
+                                jj = j + j_off
+                                out[n, oc, i, j] += x_pad[n, ic, ii, jj] * wv
     return out
 
 
@@ -69,26 +62,84 @@ def _conv2d_same_dilated_backward_numba(x, w, dout, dilation):
     out_ch, _, k, _ = w.shape
     pad = (k // 2) * dilation
 
-    dx = np.zeros_like(x, dtype=np.float32)
+    x_pad = np.zeros((bs, in_ch, h + 2 * pad, wid + 2 * pad), dtype=np.float32)
+    x_pad[:, :, pad:pad + h, pad:pad + wid] = x
+    dx_pad = np.zeros_like(x_pad, dtype=np.float32)
     dw = np.zeros_like(w, dtype=np.float32)
     db = np.zeros((out_ch,), dtype=np.float32)
 
     for n in range(bs):
         for oc in range(out_ch):
-            for i in range(h):
-                for j in range(wid):
-                    g = dout[n, oc, i, j]
-                    db[oc] += g
-                    for ic in range(in_ch):
-                        for ki in range(k):
-                            for kj in range(k):
-                                ii = i + ki * dilation - pad
-                                jj = j + kj * dilation - pad
-                                if 0 <= ii < h and 0 <= jj < wid:
-                                    dw[oc, ic, ki, kj] += x[n, ic, ii, jj] * g
-                                    dx[n, ic, ii, jj] += w[oc, ic, ki, kj] * g
+            db[oc] += np.sum(dout[n, oc])
+            for ic in range(in_ch):
+                for ki in range(k):
+                    for kj in range(k):
+                        wv = w[oc, ic, ki, kj]
+                        i_off = ki * dilation
+                        j_off = kj * dilation
+                        for i in range(h):
+                            ii = i + i_off
+                            for j in range(wid):
+                                jj = j + j_off
+                                g = dout[n, oc, i, j]
+                                dw[oc, ic, ki, kj] += x_pad[n, ic, ii, jj] * g
+                                dx_pad[n, ic, ii, jj] += wv * g
 
+    dx = dx_pad[:, :, pad:pad + h, pad:pad + wid]
     return dx, dw, db
+
+
+@njit(cache=True)
+def _min_enemy_distance_channel_numba(spatial: np.ndarray) -> np.ndarray:
+    bs = spatial.shape[0]
+    out = np.ones((bs, 1, 8, 8), dtype=np.float32)
+
+    own_y = np.zeros((64,), dtype=np.int32)
+    own_x = np.zeros((64,), dtype=np.int32)
+    opp_y = np.zeros((64,), dtype=np.int32)
+    opp_x = np.zeros((64,), dtype=np.int32)
+
+    for n in range(bs):
+        own_cnt = 0
+        opp_cnt = 0
+
+        for i in range(8):
+            for j in range(8):
+                own_p = 0
+                opp_p = 0
+                for c in range(1, 6):
+                    if abs(spatial[n, c, i, j]) > 1e-6:
+                        own_p = 1
+                        break
+                for c in range(6, 11):
+                    if abs(spatial[n, c, i, j]) > 1e-6:
+                        opp_p = 1
+                        break
+                if own_p == 1:
+                    own_y[own_cnt] = i
+                    own_x[own_cnt] = j
+                    own_cnt += 1
+                if opp_p == 1:
+                    opp_y[opp_cnt] = i
+                    opp_x[opp_cnt] = j
+                    opp_cnt += 1
+
+        if own_cnt == 0 or opp_cnt == 0:
+            continue
+
+        min_dist = 1000
+        for oi in range(own_cnt):
+            for ej in range(opp_cnt):
+                d = abs(own_y[oi] - opp_y[ej]) + abs(own_x[oi] - opp_x[ej])
+                if d < min_dist:
+                    min_dist = d
+
+        v = np.float32(min_dist / 14.0)
+        for i in range(8):
+            for j in range(8):
+                out[n, 0, i, j] = v
+
+    return out
 
 
 class PPONetwork:
@@ -99,11 +150,12 @@ class PPONetwork:
     - Spatial 입력: map + own/opp unit stat channels -> CNN
       * conv1: 일반 same conv
       * conv2: dilated conv(dilation=2)로 먼 거리 문맥 포착
-    - Non-spatial 입력: common + hand_stat_summary + result + min_enemy_distance -> MLP
+    - Non-spatial 입력: common + hand_stat_summary + result -> MLP
     - 두 경로를 concat 후 policy/value head 출력
     """
 
     SPATIAL_CHANNELS = 11
+    EXTRA_SPATIAL_CHANNELS = 1  # min_enemy_distance map
     MAP_TILES = 64
     SPATIAL_SIZE = SPATIAL_CHANNELS * MAP_TILES
     COMMON_SIZE = 4
@@ -131,17 +183,16 @@ class PPONetwork:
         if state_size != expected:
             raise ValueError(f"state_size({state_size}) must be exactly {expected} for fixed hybrid split")
 
-        # common(4) + hand_stat_summary(5) + result(1) + min_enemy_distance(1)
-        self.non_spatial_size = self.COMMON_SIZE + self.NON_SPATIAL_SIZE + 1
-        grid_y, grid_x = np.indices((8, 8), dtype=np.int32)
-        self._grid_coords = np.stack([grid_y.reshape(-1), grid_x.reshape(-1)], axis=1)
-
+        # common(4) + hand_stat_summary(5) + result(1)
+        self.non_spatial_size = self.COMMON_SIZE + self.NON_SPATIAL_SIZE
         # Spatial CNN branch
-        self.conv1_w = _randn_f32((16, self.SPATIAL_CHANNELS, 3, 3), np.sqrt(2.0 / (self.SPATIAL_CHANNELS * 3 * 3)))
+        spatial_in_ch = self.SPATIAL_CHANNELS + self.EXTRA_SPATIAL_CHANNELS
+        self.conv1_w = _randn_f32((16, spatial_in_ch, 3, 3), np.sqrt(2.0 / (spatial_in_ch * 3 * 3)))
         self.conv1_b = np.zeros((16,), dtype=np.float32)
         self.conv2_w = _randn_f32((32, 16, 3, 3), np.sqrt(2.0 / (16 * 3 * 3)))
         self.conv2_b = np.zeros((32,), dtype=np.float32)
-        self.spatial_fc_w = _randn_f32((128, 32 * 8 * 8), np.sqrt(2.0 / (32 * 8 * 8)))
+        # global average pooling(32) -> projection(128)
+        self.spatial_fc_w = _randn_f32((128, 32), np.sqrt(2.0 / 32))
         self.spatial_fc_b = np.zeros((128, 1), dtype=np.float32)
 
         # Non-spatial branch
@@ -164,22 +215,8 @@ class PPONetwork:
     def _relu(x: np.ndarray) -> np.ndarray:
         return np.maximum(0.0, x)
 
-    def _min_enemy_distance(self, spatial: np.ndarray) -> np.ndarray:
-        # own channels: 1~5, opp channels: 6~10
-        bs = spatial.shape[0]
-        out = np.ones((bs, 1), dtype=np.float32)
-        own_presence = (np.max(np.abs(spatial[:, 1:6, :, :]), axis=1) > 1e-6)
-        opp_presence = (np.max(np.abs(spatial[:, 6:11, :, :]), axis=1) > 1e-6)
-
-        for i in range(bs):
-            own = np.argwhere(own_presence[i])
-            opp = np.argwhere(opp_presence[i])
-            if own.shape[0] == 0 or opp.shape[0] == 0:
-                out[i, 0] = 1.0
-                continue
-            d = np.abs(own[:, None, :] - opp[None, :, :]).sum(axis=2)
-            out[i, 0] = float(np.min(d)) / 14.0
-        return out
+    def _min_enemy_distance_channel(self, spatial: np.ndarray) -> np.ndarray:
+        return _min_enemy_distance_channel_numba(spatial)
 
     @staticmethod
     def _conv2d_same_forward(x: np.ndarray, w: np.ndarray, b: np.ndarray, dilation: int = 1) -> np.ndarray:
@@ -204,10 +241,11 @@ class PPONetwork:
         hand_and_result = x2[:, spatial_end:spatial_end + self.NON_SPATIAL_SIZE]
 
         spatial = spatial_flat.reshape(x2.shape[0], self.SPATIAL_CHANNELS, 8, 8).astype(np.float32)
-        min_enemy_dist = self._min_enemy_distance(spatial)
-        non_spatial = np.concatenate([common, hand_and_result, min_enemy_dist], axis=1)
+        min_enemy_ch = self._min_enemy_distance_channel(spatial)
+        spatial_aug = np.concatenate([spatial, min_enemy_ch], axis=1)
+        non_spatial = np.concatenate([common, hand_and_result], axis=1)
 
-        return spatial, non_spatial.astype(np.float32)
+        return spatial_aug.astype(np.float32), non_spatial.astype(np.float32)
 
     def _forward_internal(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         spatial, non_spatial = self._split_state(x)
@@ -217,9 +255,9 @@ class PPONetwork:
         c2 = self._conv2d_same_forward(a_c1, self.conv2_w, self.conv2_b, dilation=2)
         a_c2 = self._relu(c2)
 
-        bs = spatial.shape[0]
-        spatial_flat = a_c2.reshape(bs, -1).T
-        z_sp = np.dot(self.spatial_fc_w, spatial_flat) + self.spatial_fc_b
+        pooled = np.mean(a_c2, axis=(2, 3))  # (bs,32)
+        spatial_pool_t = pooled.T  # (32,bs)
+        z_sp = np.dot(self.spatial_fc_w, spatial_pool_t) + self.spatial_fc_b
         a_sp = self._relu(z_sp)
 
         non_in = non_spatial.T
@@ -241,7 +279,7 @@ class PPONetwork:
             "a_c1": a_c1,
             "c2": c2,
             "a_c2": a_c2,
-            "spatial_flat": spatial_flat,
+            "spatial_pool_t": spatial_pool_t,
             "z_sp": z_sp,
             "non_in": non_in,
             "z_n1": z_n1,
@@ -343,10 +381,10 @@ class PPONetwork:
                 da_n2 = dfused[128:, :]
 
                 dz_sp = da_sp * (self.cache["z_sp"] > 0)
-                dw_spatial_fc = np.dot(dz_sp, self.cache["spatial_flat"].T)
+                dw_spatial_fc = np.dot(dz_sp, self.cache["spatial_pool_t"].T)
                 db_spatial_fc = np.sum(dz_sp, axis=1, keepdims=True)
-                dspatial_flat = np.dot(self.spatial_fc_w.T, dz_sp)
-                da_c2 = dspatial_flat.T.reshape(bs, 32, 8, 8)
+                dpool = np.dot(self.spatial_fc_w.T, dz_sp)  # (32,bs)
+                da_c2 = np.broadcast_to((dpool.T[:, :, None, None] / 64.0).astype(np.float32), self.cache["a_c2"].shape)
                 dc2 = da_c2 * (self.cache["c2"] > 0)
 
                 da_c1, dw_conv2, db_conv2 = self._conv2d_same_backward(self.cache["a_c1"], self.conv2_w, dc2, dilation=2)
@@ -409,8 +447,12 @@ class PPONetwork:
                 self.conv1_b = to_numpy(state_dict["conv1.bias"])
                 self.conv2_w = to_numpy(state_dict["conv2.weight"])
                 self.conv2_b = to_numpy(state_dict["conv2.bias"])
-                self.spatial_fc_w = to_numpy(state_dict["spatial_fc.weight"])
-                self.spatial_fc_b = to_numpy(state_dict["spatial_fc.bias"]).reshape(-1, 1)
+                spatial_fc_w = to_numpy(state_dict["spatial_fc.weight"])
+                spatial_fc_b = to_numpy(state_dict["spatial_fc.bias"]).reshape(-1, 1)
+                if spatial_fc_w.shape == self.spatial_fc_w.shape:
+                    self.spatial_fc_w = spatial_fc_w
+                if spatial_fc_b.shape == self.spatial_fc_b.shape:
+                    self.spatial_fc_b = spatial_fc_b
 
                 self.non_fc1_w = to_numpy(state_dict["non_fc1.weight"])
                 self.non_fc1_b = to_numpy(state_dict["non_fc1.bias"]).reshape(-1, 1)
