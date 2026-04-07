@@ -525,7 +525,6 @@ class AITrainer:
             before_norm = self._network_l2_norm()
             update_stats = self.train_on_episode(pending_trajectories)
             after_norm = self._network_l2_norm()
-            weight_delta_sum += abs(after_norm - before_norm)
 
             if isinstance(update_stats, dict):
                 total_loss += float(update_stats.get("loss", 0.0))
