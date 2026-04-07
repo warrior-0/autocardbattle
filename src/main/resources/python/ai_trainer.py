@@ -591,19 +591,16 @@ class AITrainer:
                 
             if is_log_step and self.total_trained_episodes % 1000 != 0:
                 # ✅ 실제 구간 길이 계산
-                window_size = ep % log_interval
-                if window_size == 0:
-                    window_size = log_interval
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
                 avg_kl = total_kl / max(1, kl_count)
-                avg_weight_delta = weight_delta_sum / max(1, loss_count)
+                avg_weight_delta = weight_delta_sum / max(1, log_interval)
 
                 print(json.dumps({
                     "episode": ep,
                     "total_episode": self.total_trained_episodes,
                     "reward": round(ep_reward, 2),
-                    "avg_reward": round(reward_window_sum / max(1, window_size), 2),
+                    "avg_reward": round(reward_window_sum / max(1, log_interval), 2),
                     "avg_loss": round(avg_loss, 6),
                     "avg_kl": round(avg_kl, 6),
                     "avg_weight_delta_l2": round(avg_weight_delta, 8),
@@ -632,17 +629,16 @@ class AITrainer:
             if self.total_trained_episodes % 1000 == 0:
                 flush_batch_if_needed(force=True)
                 self.needs_evaluation = True
-                window_size = log_interval
                 
                 total_games = max(1, total_wins + total_draws + total_losses)
                 avg_loss = total_loss / max(1, loss_count)
                 avg_kl = total_kl / max(1, kl_count)
-                avg_weight_delta = weight_delta_sum / max(1, loss_count)
+                avg_weight_delta = weight_delta_sum / max(1, log_interval)
 
                 print(json.dumps({
                     "episode": ep,
                     "total_episode": self.total_trained_episodes,
-                    "avg_reward": round(reward_window_sum / max(1, window_size), 2),
+                    "avg_reward": round(reward_window_sum / max(1, log_interval), 2),
                     "avg_loss": round(avg_loss, 6),
                     "avg_kl": round(avg_kl, 6),
                     "avg_weight_delta_l2": round(avg_weight_delta, 8),
