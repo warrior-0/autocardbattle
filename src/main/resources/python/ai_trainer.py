@@ -62,7 +62,7 @@ class AITrainer:
         self.total_trained_episodes = 0
         self.needs_evaluation = False  # 승급전 필요 여부 플래그
 
-        self.gamma = 0.95
+        self.gamma = 0.98
         self.gae_lambda = 0.95
         self.ppo_epochs = 8
         self.minibatch_size = 128
