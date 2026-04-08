@@ -50,7 +50,7 @@ class AITrainer:
             action_size,
             learning_rate=3e-4,
             clip_epsilon=0.2,
-            entropy_coef=0.01,
+            entropy_coef=0.025,
             value_coef=0.5,
             target_kl=0.02,
         )
@@ -58,7 +58,7 @@ class AITrainer:
         self.base_entropy_coef = 0.025
         self.training_step = 0
 
-        self.replace_rate = 0.60
+        self.replace_rate = 0.55
         self.total_trained_episodes = 0
         self.needs_evaluation = False  # 승급전 필요 여부 플래그
 
@@ -356,15 +356,15 @@ class AITrainer:
 
         r = np.random.rand()
         
-        # 1. Best Network (20%)
-        if r < 0.2: 
+        # 1. Best Network (50%)
+        if r < 0.5: 
             return self.best_network
             
-        # 2. Previous Network (50%) - 최소 1000판 격차가 확보된 최신 체크포인트
-        if r < 0.7:
+        # 2. Previous Network (30%) - 최소 1000판 격차가 확보된 최신 체크포인트
+        if r < 0.3:
             return self.previous_network
                 
-        # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜덤 선택
+        # 3. Historical Networks (20%) - 더 과거의 모델들 중에서 랜덤 선택
         if self.other_historical_candidates:
             return self.random_choice(self.other_historical_candidates)
             
@@ -551,7 +551,7 @@ class AITrainer:
             while not done:
                 action, act_idx, log_p, val, msk = self.select_action(state, sim.get_valid_actions_for("player"))
                 obs_l.append(state); act_l.append(act_idx); log_l.append(log_p); val_l.append(val); msk_l.append(msk)
-                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=enemy_net)
+                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='play', network_to_use=enemy_net)
                 state, _, rew, _, done, info = sim.step_self_play(action, enemy_action)
                 rew_l.append(rew); don_l.append(done); ep_reward += rew
 
