@@ -64,8 +64,8 @@ class AITrainer:
 
         self.gamma = 0.98
         self.gae_lambda = 0.95
-        self.ppo_epochs = 8
-        self.minibatch_size = 128
+        self.ppo_epochs = 4
+        self.minibatch_size = 64
 
         self.previous_network = self._clone_network(self.network)
         self.best_network = self._clone_network(self.network)
