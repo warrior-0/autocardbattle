@@ -80,6 +80,7 @@ public class RlAiService {
     public Optional<BattleMessage> chooseAction(
             BattleService.GameState state,
             String roomId,
+            String mapData,
             List<String> hand,
             List<BattleMessage> aiPlacements,
             List<BattleMessage> humanPlacements,
@@ -98,7 +99,7 @@ public class RlAiService {
             return Optional.empty();
         }
 
-        List<Integer> canonicalTiles = resolveCanonicalTiles(availableTiles, activeModel);
+        List<Integer> canonicalTiles = resolveCanonicalTiles(availableTiles);
         if (canonicalTiles.isEmpty()) {
             return Optional.empty();
         }
@@ -112,7 +113,7 @@ public class RlAiService {
                 aiHp,
                 humanHp,
                 diceTypes,
-                activeModel
+                mapData
         );
 
         double[] qValues = activeModel.predict(stateVector);
@@ -246,12 +247,12 @@ public class RlAiService {
             int aiHp,
             int humanHp,
             List<String> diceTypes,
-            PolicyModel model
+            String mapDataRaw
     ) {
         List<Integer> vector = new ArrayList<>(TOTAL_TILES * 5 + diceTypes.size() + 5);
 
         // 1) map layout (64)
-        vector.addAll(encodeMap(model.mapData));
+        vector.addAll(encodeMap(mapDataRaw));
 
         // 2) own board types (64)
         vector.addAll(encodeBoardTypes(aiPlacements, diceTypes));
@@ -343,14 +344,7 @@ public class RlAiService {
         return list;
     }
 
-    private List<Integer> resolveCanonicalTiles(List<int[]> availableTiles, PolicyModel model) {
-        // 학습 시 모델에 저장된 타일 목록(enemyTiles)을 우선적으로 사용합니다.
-        // AI는 항상 'enemy' 사이드에서 학습되므로 모델의 enemyTiles가 AI가 배치 가능한 타일 목록입니다.
-        List<Integer> enemyTiles = sanitizeTiles(model.enemyTiles);
-        if (!enemyTiles.isEmpty()) {
-            return enemyTiles;
-        }
-
+    private List<Integer> resolveCanonicalTiles(List<int[]> availableTiles) {
         // 모델에 타일 정보가 없는 경우 현재 맵에서 ENEMY_TILE로 설정된 타일들을 사용합니다.
         List<Integer> fallback = new ArrayList<>();
         for (int[] tile : availableTiles) {
@@ -577,6 +571,20 @@ public class RlAiService {
                 if (!token.isBlank()) {
                     map.add(token.trim());
                 }
+            }
+        }
+        return map;
+    }
+
+    private List<String> parseMapData(String mapDataRaw) {
+        List<String> map = new ArrayList<>();
+        if (mapDataRaw == Null || mapDataRaw.isBlank()) {
+            return map;
+        }
+        String[] tokens = mapDataRaw.split(".");
+        for (String token : tokens) {
+            if (token != null && !token.isBlank()) {
+                map.add(token.trim());
             }
         }
         return map;
