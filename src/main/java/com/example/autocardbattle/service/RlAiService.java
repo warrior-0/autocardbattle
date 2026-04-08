@@ -142,9 +142,21 @@ public class RlAiService {
             return Optional.empty();
         }
 
-        // Hybrid(CNN) 체크포인트는 현재 Java 추론기(MLP)와 구조가 달라
-        // 확률 점수를 직접 계산할 수 없으므로, 유효 후보 중 랜덤 선택으로 안전하게 진행합니다.
-        if (activeModel.hybridModel || qValues.length == 0) {
+        // Hybrid(CNN) 체크포인트는 best_model의 policy_head.bias를 기준으로
+        // 유효 후보 action index의 확률 분포를 계산해 선택합니다.
+        // (추론 불가 시에만 랜덤 fallback)
+        if (activeModel.hybridModel) {
+            CandidateAction selected = selectHybridCandidateFromBestModel(candidates, activeModel);
+            if (selected == null) {
+                selected = selectFallbackCandidate(candidates);
+            }
+            if (selected == null || selected.isCompleteTurn()) {
+                return Optional.empty();
+            }
+            return Optional.of(toBattleAction(selected, state));
+        }
+
+        if (qValues.length == 0) {
             CandidateAction selected = selectFallbackCandidate(candidates);
             if (selected == null || selected.isCompleteTurn()) {
                 return Optional.empty();
@@ -220,6 +232,60 @@ public class RlAiService {
         return nonPass.get(pick);
     }
 
+    private CandidateAction selectHybridCandidateFromBestModel(List<CandidateAction> candidates, PolicyModel model) {
+        if (candidates == null || candidates.isEmpty() || model == null) {
+            return null;
+        }
+        if (model.policyHeadBias == null || model.policyHeadBias.length == 0) {
+            return null;
+        }
+
+        List<CandidateAction> validCandidates = new ArrayList<>();
+        List<Double> scores = new ArrayList<>();
+        double maxScore = Double.NEGATIVE_INFINITY;
+
+        for (CandidateAction candidate : candidates) {
+            int idx = candidate.actionIndex;
+            if (idx < 0 || idx >= model.policyHeadBias.length) {
+                continue;
+            }
+            double score = model.policyHeadBias[idx];
+            validCandidates.add(candidate);
+            scores.add(score);
+            if (score > maxScore) {
+                maxScore = score;
+            }
+        }
+
+        if (validCandidates.isEmpty()) {
+            return null;
+        }
+
+        double sumExp = 0.0;
+        double[] probs = new double[scores.size()];
+        for (int i = 0; i < scores.size(); i++) {
+            probs[i] = Math.exp(scores.get(i) - maxScore);
+            sumExp += probs[i];
+        }
+        if (sumExp <= 0.0) {
+            return null;
+        }
+
+        for (int i = 0; i < probs.length; i++) {
+            probs[i] /= (sumExp + 1e-8);
+        }
+
+        double r = ThreadLocalRandom.current().nextDouble();
+        double cumulative = 0.0;
+        for (int i = 0; i < probs.length; i++) {
+            cumulative += probs[i];
+            if (r <= cumulative) {
+                return validCandidates.get(i);
+            }
+        }
+        return validCandidates.get(validCandidates.size() - 1);
+    }
+
     private BattleMessage toBattleAction(CandidateAction chosen, BattleService.GameState state) {
         BattleMessage action = new BattleMessage();
         action.setSender(state.aiUid);
@@ -252,7 +318,7 @@ public class RlAiService {
         List<Integer> vector = new ArrayList<>(TOTAL_TILES * 5 + diceTypes.size() + 5);
 
         // 1) map layout (64)
-        vector.addAll(encodeMap(mapDataRaw));
+        vector.addAll(encodeMap(parseMapData(mapDataRaw)));
 
         // 2) own board types (64)
         vector.addAll(encodeBoardTypes(aiPlacements, diceTypes));
@@ -345,7 +411,6 @@ public class RlAiService {
     }
 
     private List<Integer> resolveCanonicalTiles(List<int[]> availableTiles) {
-        // 모델에 타일 정보가 없는 경우 현재 맵에서 ENEMY_TILE로 설정된 타일들을 사용합니다.
         List<Integer> fallback = new ArrayList<>();
         for (int[] tile : availableTiles) {
             fallback.add(toTileIndex(tile[0], tile[1]));
@@ -538,6 +603,10 @@ public class RlAiService {
         model.hybridModel = hybridModel;
 
         if (hybridModel) {
+            model.policyHeadBias = toVector(weights.path("policy_head.bias"));
+            if (model.actionSize <= 0 && model.policyHeadBias.length > 0) {
+                model.actionSizeHint = model.policyHeadBias.length;
+            }
             return model;
         }
 
@@ -578,10 +647,10 @@ public class RlAiService {
 
     private List<String> parseMapData(String mapDataRaw) {
         List<String> map = new ArrayList<>();
-        if (mapDataRaw == Null || mapDataRaw.isBlank()) {
+        if (mapDataRaw == null || mapDataRaw.isBlank()) {
             return map;
         }
-        String[] tokens = mapDataRaw.split(".");
+        String[] tokens = mapDataRaw.split(",");
         for (String token : tokens) {
             if (token != null && !token.isBlank()) {
                 map.add(token.trim());
@@ -682,7 +751,9 @@ public class RlAiService {
         double[] B2;
         double[][] W3;
         double[] B3;
+        double[] policyHeadBias;
         boolean hybridModel;
+        int actionSizeHint;
 
         PolicyModel(
                 Path path,
@@ -699,6 +770,8 @@ public class RlAiService {
             this.playerTiles = playerTiles == null ? new ArrayList<>() : playerTiles;
             this.enemyTiles = enemyTiles == null ? new ArrayList<>() : enemyTiles;
             this.hybridModel = false;
+            this.policyHeadBias = new double[0];
+            this.actionSizeHint = actionSize;
         }
 
         static PolicyModel empty(Path path) {
@@ -706,15 +779,26 @@ public class RlAiService {
         }
 
         double[] predict(int[] state) {
-            if (hybridModel) {
-                return new double[0];
-            }
-            if (actionSize <= 0) {
+            int effectiveActionSize = actionSize > 0 ? actionSize : actionSizeHint;
+
+            if (effectiveActionSize <= 0) {
                 return new double[0];
             }
 
+            if (hybridModel) {
+                if (policyHeadBias == null || policyHeadBias.length == 0) {
+                    return new double[0];
+                }
+                double[] logits = new double[effectiveActionSize];
+                int len = Math.min(effectiveActionSize, policyHeadBias.length);
+                for (int i = 0; i < len; i++) {
+                    logits[i] = policyHeadBias[i];
+                }
+                return logits;
+            }
+
             if (!isReady()) {
-                double[] fallback = new double[actionSize];
+                double[] fallback = new double[effectiveActionSize];
                 for (int i = 0; i < fallback.length; i++) {
                     fallback[i] = ThreadLocalRandom.current().nextDouble();
                 }
