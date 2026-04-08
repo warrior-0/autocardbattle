@@ -1,6 +1,8 @@
 package com.example.autocardbattle.service;
 
 import com.example.autocardbattle.dto.BattleMessage;
+import com.example.autocardbattle.entity.DiceEntity;
+import com.example.autocardbattle.repository.DiceRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -25,7 +27,11 @@ public class RlAiService {
     private static final int GRID_SIZE = 8;
     private static final int TOTAL_TILES = GRID_SIZE * GRID_SIZE;
     private static final int MAX_UNIT_LEVEL = 7;
+    private static final int STARTING_HP = 5;
+    private static final int MAX_ACTIONS_PER_TURN = 3;
+    private static final int MAX_ROUNDS_PER_GAME = 20;
     private final ObjectMapper objectMapper;
+    private final DiceRepository diceRepository;
 
     @Value("${autocardbattle.ai.model.path:src/main/resources/python/q_policy.json}")
     private String defaultModelPath;
@@ -34,13 +40,20 @@ public class RlAiService {
 
     private volatile PolicyModel activeModel;
     private volatile long activeModelLastModified = -1L;
+    private volatile Map<String, DiceStatSnapshot> diceStatByType = new HashMap<>();
+    private volatile double maxDiceHp = 1.0;
+    private volatile double maxDiceDamage = 1.0;
+    private volatile double maxDiceRange = 1.0;
+    private volatile double maxDiceAps = 1.0;
 
-    public RlAiService(ObjectMapper objectMapper) {
+    public RlAiService(ObjectMapper objectMapper, DiceRepository diceRepository) {
         this.objectMapper = objectMapper;
+        this.diceRepository = diceRepository;
     }
 
     @PostConstruct
     public void init() {
+        refreshDiceCatalog();
         Path path = resolvePreferredModelPath();
         System.out.println("AI Model loading from: " + path.toAbsolutePath());
         try {
@@ -58,6 +71,30 @@ public class RlAiService {
             activeModel = PolicyModel.empty(path);
             activeModelLastModified = -1L;
         }
+    }
+
+    private synchronized void refreshDiceCatalog() {
+        List<DiceEntity> all = diceRepository.findAll();
+        Map<String, DiceStatSnapshot> map = new HashMap<>();
+        double hpMax = 1.0;
+        double dmgMax = 1.0;
+        double rangeMax = 1.0;
+        double apsMax = 1.0;
+        for (DiceEntity d : all) {
+            if (d == null || d.getDiceType() == null) continue;
+            String key = d.getDiceType().trim().toUpperCase();
+            DiceStatSnapshot stat = new DiceStatSnapshot(d.getHp(), d.getDamage(), d.getRange(), d.getAps());
+            map.put(key, stat);
+            hpMax = Math.max(hpMax, stat.hp);
+            dmgMax = Math.max(dmgMax, stat.damage);
+            rangeMax = Math.max(rangeMax, stat.range);
+            apsMax = Math.max(apsMax, stat.aps);
+        }
+        diceStatByType = map;
+        maxDiceHp = hpMax;
+        maxDiceDamage = dmgMax;
+        maxDiceRange = rangeMax;
+        maxDiceAps = apsMax;
     }
 
     public synchronized void activateModel(Path modelPath) throws IOException {
@@ -104,7 +141,7 @@ public class RlAiService {
             return Optional.empty();
         }
 
-        int[] stateVector = encodeState(
+        double[] stateVector = encodeState(
                 state,
                 hand,
                 aiPlacements,
@@ -236,7 +273,7 @@ public class RlAiService {
         return action;
     }
 
-    private int[] encodeState(
+    private double[] encodeState(
             BattleService.GameState state,
             List<String> hand,
             List<BattleMessage> aiPlacements,
@@ -247,99 +284,118 @@ public class RlAiService {
             List<String> diceTypes,
             String mapDataRaw
     ) {
-        List<Integer> vector = new ArrayList<>(TOTAL_TILES * 5 + diceTypes.size() + 5);
+        List<Double> vector = new ArrayList<>(4 + (11 * TOTAL_TILES) + 6);
 
-        // 1) map layout (64)
-        vector.addAll(encodeMap(parseMapData(mapDataRaw)));
+        // common (4)
+        vector.add(Math.max(0, aiHp) / (double) STARTING_HP);
+        vector.add(Math.max(0, humanHp) / (double) STARTING_HP);
+        vector.add(Math.max(0, aiActionsUsed) / (double) MAX_ACTIONS_PER_TURN);
+        vector.add(Math.max(0, state.turn) / (double) MAX_ROUNDS_PER_GAME);
 
-        // 2) own board types (64)
-        vector.addAll(encodeBoardTypes(aiPlacements, diceTypes));
+        // map_info (64)
+        vector.addAll(encodeMapAsFloat(parseMapData(mapDataRaw)));
 
-        // 3) own board levels (64)
-        vector.addAll(encodeBoardLevels(aiPlacements));
+        // own stats (5*64)
+        vector.addAll(encodeBoardStat(aiPlacements, "hp", null));
+        vector.addAll(encodeBoardStat(aiPlacements, "damage", null));
+        vector.addAll(encodeBoardStat(aiPlacements, "range", null));
+        vector.addAll(encodeBoardStat(aiPlacements, "aps", null));
+        vector.addAll(encodeBoardStat(aiPlacements, "level", null));
 
-        // 4) enemy board types (64)
-        vector.addAll(encodeBoardTypes(humanPlacements, diceTypes));
+        // opponent stats (5*64) - 인간 배치는 라운드 시작 스냅샷만 전달되므로
+        // game_simulator의 revealed 규칙과 유사하게 이미 공개된 정보만 반영됩니다.
+        vector.addAll(encodeBoardStat(humanPlacements, "hp", null));
+        vector.addAll(encodeBoardStat(humanPlacements, "damage", null));
+        vector.addAll(encodeBoardStat(humanPlacements, "range", null));
+        vector.addAll(encodeBoardStat(humanPlacements, "aps", null));
+        vector.addAll(encodeBoardStat(humanPlacements, "level", null));
 
-        // 5) enemy board levels (64)
-        vector.addAll(encodeBoardLevels(humanPlacements));
+        // hand stat summary (5)
+        vector.addAll(encodeHandStatSummary(hand));
 
-        // 6) hand counts per dice type
-        for (String diceType : diceTypes) {
-            int count = 0;
-            for (String h : hand) {
-                if (diceType.equals(h)) {
-                    count++;
-                }
-            }
-            vector.add(count);
+        // last round result (1)
+        double res = state.lastRoundResult;
+        vector.add(res == 1 ? 1.0 : (res == -1 ? -1.0 : -0.1));
+
+        double[] out = new double[vector.size()];
+        for (int i = 0; i < vector.size(); i++) {
+            out[i] = vector.get(i);
         }
-
-        // 7) game metadata
-        vector.add(Math.max(0, aiHp));
-        vector.add(Math.max(0, humanHp));
-        vector.add(Math.max(0, aiActionsUsed));
-        vector.add(Math.max(0, state.turn)); // game_simulator.py의 current_round는 1부터 시작함
-        vector.add(state.lastRoundResult + 1);
-
-        return vector.stream().mapToInt(Integer::intValue).toArray();
+        return out;
     }
 
-    private List<Integer> encodeMap(List<String> mapData) {
-        List<Integer> encoded = new ArrayList<>(TOTAL_TILES);
+    private List<Double> encodeMapAsFloat(List<String> mapData) {
+        List<Double> encoded = new ArrayList<>(TOTAL_TILES);
         for (String kind : mapData) {
             String t = kind == null ? "" : kind.trim().toUpperCase();
             if (t.equals("BOTH_TILE") || t.equals("SHARED_TILE") || t.equals("ANY_TILE")) {
-                encoded.add(3);
+                encoded.add(3.0);
             } else if (t.equals("MY_TILE") || t.equals("PLAYER_TILE") || t.equals("ALLY_TILE")) {
-                encoded.add(1);
+                encoded.add(1.0);
             } else if (t.equals("ENEMY_TILE")) {
-                encoded.add(2);
+                encoded.add(2.0);
             } else {
-                encoded.add(0);
+                encoded.add(0.0);
             }
         }
-
-        while (encoded.size() < TOTAL_TILES) {
-            encoded.add(0);
-        }
+        while (encoded.size() < TOTAL_TILES) encoded.add(0.0);
         if (encoded.size() > TOTAL_TILES) {
             return new ArrayList<>(encoded.subList(0, TOTAL_TILES));
         }
         return encoded;
     }
 
-    private List<Integer> encodeBoardTypes(List<BattleMessage> placements, List<String> diceTypes) {
-        int[] board = new int[TOTAL_TILES];
-        for (BattleMessage unit : placements) {
-            int tile = toTileIndex(unit.getX(), unit.getY());
-            if (tile < 0 || tile >= TOTAL_TILES) {
-                continue;
+    private List<Double> encodeBoardStat(List<BattleMessage> placements, String statName, Set<Integer> revealedTiles) {
+        double[] arr = new double[TOTAL_TILES];
+        if (placements == null) {
+            List<Double> zeros = new ArrayList<>(TOTAL_TILES);
+            for (int i = 0; i < TOTAL_TILES; i++) zeros.add(0.0);
+            return zeros;
+        }
+        Map<String, DiceStatSnapshot> statMap = diceStatByType;
+        for (BattleMessage placement : placements) {
+            int tile = toTileIndex(placement.getX(), placement.getY());
+            if (!isValidTileIndex(tile)) continue;
+            if (revealedTiles != null && !revealedTiles.contains(tile)) continue;
+            String type = placement.getDiceType() == null ? "" : placement.getDiceType().trim().toUpperCase();
+            DiceStatSnapshot base = statMap.get(type);
+            if (base == null) continue;
+            int level = Math.max(1, placement.getLevel());
+            int n = level - 1;
+            double value;
+            switch (statName) {
+                case "hp" -> value = (base.hp * (1.0 + (0.7 * n))) / Math.max(1.0, maxDiceHp);
+                case "damage" -> value = (base.damage * (1.0 + (0.7 * n))) / Math.max(1.0, maxDiceDamage);
+                case "range" -> value = base.range / Math.max(1.0, maxDiceRange);
+                case "aps" -> value = (base.aps * (1.0 + (0.2 * n))) / Math.max(1.0, maxDiceAps);
+                case "level" -> value = level / (double) Math.max(1, MAX_UNIT_LEVEL);
+                default -> value = 0.0;
             }
-            int idx = diceTypes.indexOf(unit.getDiceType());
-            board[tile] = idx >= 0 ? idx + 1 : 0;
+            arr[tile] = value;
         }
-        List<Integer> list = new ArrayList<>(TOTAL_TILES);
-        for (int v : board) {
-            list.add(v);
-        }
-        return list;
+        List<Double> out = new ArrayList<>(TOTAL_TILES);
+        for (double v : arr) out.add(v);
+        return out;
     }
 
-    private List<Integer> encodeBoardLevels(List<BattleMessage> placements) {
-        int[] board = new int[TOTAL_TILES];
-        for (BattleMessage unit : placements) {
-            int tile = toTileIndex(unit.getX(), unit.getY());
-            if (tile < 0 || tile >= TOTAL_TILES) {
-                continue;
+    private List<Double> encodeHandStatSummary(List<String> hand) {
+        double[] feats = new double[5];
+        if (hand != null) {
+            for (String typeRaw : hand) {
+                if (typeRaw == null) continue;
+                DiceStatSnapshot stat = diceStatByType.get(typeRaw.trim().toUpperCase());
+                if (stat == null) continue;
+                feats[0] += stat.hp / Math.max(1.0, maxDiceHp);
+                feats[1] += stat.damage / Math.max(1.0, maxDiceDamage);
+                feats[2] += stat.range / Math.max(1.0, maxDiceRange);
+                feats[3] += stat.aps / Math.max(1.0, maxDiceAps);
+                feats[4] += 1.0 / Math.max(1.0, MAX_UNIT_LEVEL);
             }
-            board[tile] = Math.max(0, unit.getLevel());
         }
-        List<Integer> list = new ArrayList<>(TOTAL_TILES);
-        for (int v : board) {
-            list.add(v);
-        }
-        return list;
+        double denom = 2.0; // HAND_SIZE
+        List<Double> out = new ArrayList<>(5);
+        for (double v : feats) out.add(v / denom);
+        return out;
     }
 
     private List<Integer> resolveCanonicalTiles(List<int[]> availableTiles) {
@@ -670,6 +726,20 @@ public class RlAiService {
         return out;
     }
 
+    private static class DiceStatSnapshot {
+        final double hp;
+        final double damage;
+        final double range;
+        final double aps;
+
+        DiceStatSnapshot(double hp, double damage, double range, double aps) {
+            this.hp = hp;
+            this.damage = damage;
+            this.range = range;
+            this.aps = aps;
+        }
+    }
+
     private static class CandidateAction {
         final boolean pass;
         final int actionIndex;
@@ -757,7 +827,7 @@ public class RlAiService {
             return new PolicyModel(path, 0, 0, new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
         }
 
-        double[] predict(int[] state) {
+        double[] predict(double[] state) {
             int effectiveActionSize = actionSize > 0 ? actionSize : actionSizeHint;
 
             if (effectiveActionSize <= 0) {
@@ -801,7 +871,7 @@ public class RlAiService {
                     && policyW != null && policyW.length > 0;
         }
 
-        private double[] predictHybrid(int[] state, int effectiveActionSize) {
+        private double[] predictHybrid(double[] state, int effectiveActionSize) {
             final int commonSize = 4;
             final int spatialChannels = 11;
             final int tileCount = 64;
@@ -1000,7 +1070,7 @@ public class RlAiService {
             return minDist / 14.0;
         }
 
-        private double[] adjustState(int[] state, int expectedSize) {
+        private double[] adjustState(double[] state, int expectedSize) {
             double[] input = new double[expectedSize];
             int len = Math.min(state.length, expectedSize);
             for (int i = 0; i < len; i++) {
