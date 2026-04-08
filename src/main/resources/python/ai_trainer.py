@@ -303,6 +303,8 @@ class AITrainer:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             checkpoint = {
                 "policy_state_dict": self.network.state_dict(),
+                "state_size": int(self.state_size),
+                "action_size": int(self.action_size),
                 "total_trained_episodes": int(self.total_trained_episodes),
                 "needs_evaluation": self.needs_evaluation,
                 "timestamp": time.time()
