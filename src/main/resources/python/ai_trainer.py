@@ -261,8 +261,8 @@ class AITrainer:
         sq_sum = 0.0
 
         params = [
-            self.network.spatial_mlp1_w, self.network.spatial_mlp1_b,
-            self.network.spatial_mlp2_w, self.network.spatial_mlp2_b,
+            self.network.conv1_w, self.network.conv1_b,
+            self.network.conv2_w, self.network.conv2_b,
             self.network.spatial_fc_w, self.network.spatial_fc_b,
             self.network.non_fc1_w, self.network.non_fc1_b,
             self.network.non_fc2_w, self.network.non_fc2_b,
