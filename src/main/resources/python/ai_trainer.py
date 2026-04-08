@@ -483,7 +483,7 @@ class AITrainer:
         start_time = time.time()
         root_dir = os.path.abspath(os.path.join(os.path.dirname(self.model_path), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
-        update_batch_episodes = max(1, int(os.getenv("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES", "100")))
+        update_batch_episodes = max(1, int(os.getenv("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES", "50")))
         total_wins = 0
         total_draws = 0
         total_losses = 0
