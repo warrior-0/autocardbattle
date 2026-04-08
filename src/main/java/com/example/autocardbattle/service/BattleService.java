@@ -434,6 +434,7 @@ public class BattleService {
         }
         List<String> hand = new ArrayList<>(existingHand);
         List<int[]> aiTiles = getAiTiles(roomId);
+        String mapDataStr = getRoomMapData(roomId);
         List<BattleMessage> aiPlacements = state.placements.computeIfAbsent(state.aiUid, uid -> new ArrayList<>());
 
         if (hand.isEmpty()) {
@@ -472,6 +473,7 @@ public class BattleService {
         return rlAiService.chooseAction(
             state,
             roomId,
+            mapDataStr,
             hand,
             aiPlacements,
             opponentPlacements,
@@ -500,6 +502,14 @@ public class BattleService {
             }
         }
         return aiTiles;
+    }
+
+    private String getRoomMapData(String roomId) {
+        List<MapTileEntity> roomMap = BattleController.getRoomMap(roomId);
+        if (roomMap == null || roomMap.isEmpty() || roomMap.get(0).getMapData() == Null) {
+            return "";
+        }
+        return roomMap.get(0).getMapData();
     }
     
     private void processBattleResult(GameState state, String roomId) {
