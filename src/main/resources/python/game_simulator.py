@@ -704,7 +704,6 @@ class GameSimulator:
         # [수정] 손패는 매 라운드 새로 뽑습니다.
         self.player_hand.clear()
         self.enemy_hand.clear()
-        self.enemy_hand.clear()
         self._fill_hand(self.player_hand, self.player_deck)
         self._fill_hand(self.enemy_hand, self.enemy_deck)
         if self.player_hp <= 0 or self.enemy_hp <= 0 or self.current_round >= MAX_ROUNDS_PER_GAME:
