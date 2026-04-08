@@ -55,11 +55,7 @@ class AITrainer:
             target_kl=0.02,
         )
         self.base_lr = 3e-4
-        self.min_lr = 1e-5
-        self.lr_decay = 0.9997
-        self.base_entropy_coef = 0.01
-        self.min_entropy_coef = 0.001
-        self.entropy_decay = 0.9997
+        self.base_entropy_coef = 0.025
         self.training_step = 0
 
         self.replace_rate = 0.60
@@ -68,8 +64,8 @@ class AITrainer:
 
         self.gamma = 0.98
         self.gae_lambda = 0.95
-        self.ppo_epochs = 4
-        self.minibatch_size = 64
+        self.ppo_epochs = 8
+        self.minibatch_size = 128
 
         self.previous_network = self._clone_network(self.network)
         self.best_network = self._clone_network(self.network)
