@@ -273,11 +273,10 @@ class AITrainer:
         return float(np.sqrt(sq_sum))
 
     def _apply_hyperparam_schedule(self):
-        decay_steps = max(0, int(self.total_trained_episodes))
-        scheduled_lr = self.base_lr * (self.lr_decay ** decay_steps)
-        scheduled_entropy = self.base_entropy_coef * (self.entropy_decay ** decay_steps)
-        self.network.learning_rate = float(max(self.min_lr, scheduled_lr))
-        self.network.entropy_coef = float(max(self.min_entropy_coef, scheduled_entropy))
+        scheduled_lr = self.base_lr
+        scheduled_entropy = self.base_entropy_coef
+        self.network.learning_rate = float(scheduled_lr)
+        self.network.entropy_coef = float(scheduled_entropy)
 
     def load_model(self, path):
         if os.path.exists(path):
