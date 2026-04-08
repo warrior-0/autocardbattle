@@ -551,7 +551,7 @@ class AITrainer:
             while not done:
                 action, act_idx, log_p, val, msk = self.select_action(state, sim.get_valid_actions_for("player"))
                 obs_l.append(state); act_l.append(act_idx); log_l.append(log_p); val_l.append(val); msk_l.append(msk)
-                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='play', network_to_use=enemy_net)
+                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=enemy_net)
                 state, _, rew, _, done, info = sim.step_self_play(action, enemy_action)
                 rew_l.append(rew); don_l.append(done); ep_reward += rew
 
