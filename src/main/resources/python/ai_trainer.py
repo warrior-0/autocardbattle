@@ -449,7 +449,7 @@ class AITrainer:
             done = False
             while not done:
                 action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("player"), mode='train')
-                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='play', network_to_use=self.best_network)
+                enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=self.best_network)
                 state, _, _, _, done, info = sim.step_self_play(action, enemy_action)
             winner = info.get("winner")
             if winner == 1:
