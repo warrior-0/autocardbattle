@@ -506,7 +506,7 @@ public class BattleService {
 
     private String getRoomMapData(String roomId) {
         List<MapTileEntity> roomMap = BattleController.getRoomMap(roomId);
-        if (roomMap == null || roomMap.isEmpty() || roomMap.get(0).getMapData() == Null) {
+        if (roomMap == null || roomMap.isEmpty() || roomMap.get(0).getMapData() == null) {
             return "";
         }
         return roomMap.get(0).getMapData();
