@@ -142,20 +142,6 @@ public class RlAiService {
             return Optional.empty();
         }
 
-        // Hybrid(CNN) 체크포인트는 best_model의 policy_head.bias를 기준으로
-        // 유효 후보 action index의 확률 분포를 계산해 선택합니다.
-        // (추론 불가 시에만 랜덤 fallback)
-        if (activeModel.hybridModel) {
-            CandidateAction selected = selectHybridCandidateFromBestModel(candidates, activeModel);
-            if (selected == null) {
-                selected = selectFallbackCandidate(candidates);
-            }
-            if (selected == null || selected.isCompleteTurn()) {
-                return Optional.empty();
-            }
-            return Optional.of(toBattleAction(selected, state));
-        }
-
         if (qValues.length == 0) {
             CandidateAction selected = selectFallbackCandidate(candidates);
             if (selected == null || selected.isCompleteTurn()) {
@@ -230,60 +216,6 @@ public class RlAiService {
         }
         int pick = ThreadLocalRandom.current().nextInt(nonPass.size());
         return nonPass.get(pick);
-    }
-
-    private CandidateAction selectHybridCandidateFromBestModel(List<CandidateAction> candidates, PolicyModel model) {
-        if (candidates == null || candidates.isEmpty() || model == null) {
-            return null;
-        }
-        if (model.policyHeadBias == null || model.policyHeadBias.length == 0) {
-            return null;
-        }
-
-        List<CandidateAction> validCandidates = new ArrayList<>();
-        List<Double> scores = new ArrayList<>();
-        double maxScore = Double.NEGATIVE_INFINITY;
-
-        for (CandidateAction candidate : candidates) {
-            int idx = candidate.actionIndex;
-            if (idx < 0 || idx >= model.policyHeadBias.length) {
-                continue;
-            }
-            double score = model.policyHeadBias[idx];
-            validCandidates.add(candidate);
-            scores.add(score);
-            if (score > maxScore) {
-                maxScore = score;
-            }
-        }
-
-        if (validCandidates.isEmpty()) {
-            return null;
-        }
-
-        double sumExp = 0.0;
-        double[] probs = new double[scores.size()];
-        for (int i = 0; i < scores.size(); i++) {
-            probs[i] = Math.exp(scores.get(i) - maxScore);
-            sumExp += probs[i];
-        }
-        if (sumExp <= 0.0) {
-            return null;
-        }
-
-        for (int i = 0; i < probs.length; i++) {
-            probs[i] /= (sumExp + 1e-8);
-        }
-
-        double r = ThreadLocalRandom.current().nextDouble();
-        double cumulative = 0.0;
-        for (int i = 0; i < probs.length; i++) {
-            cumulative += probs[i];
-            if (r <= cumulative) {
-                return validCandidates.get(i);
-            }
-        }
-        return validCandidates.get(validCandidates.size() - 1);
     }
 
     private BattleMessage toBattleAction(CandidateAction chosen, BattleService.GameState state) {
@@ -603,10 +535,21 @@ public class RlAiService {
         model.hybridModel = hybridModel;
 
         if (hybridModel) {
-            model.policyHeadBias = toVector(weights.path("policy_head.bias"));
-            if (model.actionSize <= 0 && model.policyHeadBias.length > 0) {
-                model.actionSizeHint = model.policyHeadBias.length;
-            }
+            model.conv1W = toTensor4(weights.path("conv1.weight"));
+            model.conv1B = toVector(weights.path("conv1.bias"));
+            model.conv2W = toTensor4(weights.path("conv2.weight"));
+            model.conv2B = toVector(weights.path("conv2.bias"));
+            model.spatialFcW = toMatrix(weights.path("spatial_fc.weight"));
+            model.spatialFcB = toVector(weights.path("spatial_fc.bias"));
+            model.nonFc1W = toMatrix(weights.path("non_fc1.weight"));
+            model.nonFc1B = toVector(weights.path("non_fc1.bias"));
+            model.nonFc2W = toMatrix(weights.path("non_fc2.weight"));
+            model.nonFc2B = toVector(weights.path("non_fc2.bias"));
+            model.fuseW = toMatrix(weights.path("fuse.weight"));
+            model.fuseB = toVector(weights.path("fuse.bias"));
+            model.policyW = toMatrix(weights.path("policy_head.weight"));
+            model.policyB = toVector(weights.path("policy_head.bias"));
+            model.actionSizeHint = model.policyB.length > 0 ? model.policyB.length : actionSize;
             return model;
         }
 
@@ -703,6 +646,30 @@ public class RlAiService {
         return vector;
     }
 
+    private double[][][][] toTensor4(JsonNode node) {
+        if (node == null || !node.isArray() || node.size() == 0) {
+            return new double[0][][][];
+        }
+        int d0 = node.size();
+        int d1 = node.get(0).size();
+        int d2 = node.get(0).get(0).size();
+        int d3 = node.get(0).get(0).get(0).size();
+        double[][][][] out = new double[d0][d1][d2][d3];
+        for (int i = 0; i < d0; i++) {
+            JsonNode n1 = node.get(i);
+            for (int j = 0; j < d1; j++) {
+                JsonNode n2 = n1.get(j);
+                for (int k = 0; k < d2; k++) {
+                    JsonNode n3 = n2.get(k);
+                    for (int m = 0; m < d3; m++) {
+                        out[i][j][k][m] = n3.get(m).asDouble();
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     private static class CandidateAction {
         final boolean pass;
         final int actionIndex;
@@ -751,7 +718,20 @@ public class RlAiService {
         double[] B2;
         double[][] W3;
         double[] B3;
-        double[] policyHeadBias;
+        double[][][][] conv1W;
+        double[] conv1B;
+        double[][][][] conv2W;
+        double[] conv2B;
+        double[][] spatialFcW;
+        double[] spatialFcB;
+        double[][] nonFc1W;
+        double[] nonFc1B;
+        double[][] nonFc2W;
+        double[] nonFc2B;
+        double[][] fuseW;
+        double[] fuseB;
+        double[][] policyW;
+        double[] policyB;
         boolean hybridModel;
         int actionSizeHint;
 
@@ -770,7 +750,6 @@ public class RlAiService {
             this.playerTiles = playerTiles == null ? new ArrayList<>() : playerTiles;
             this.enemyTiles = enemyTiles == null ? new ArrayList<>() : enemyTiles;
             this.hybridModel = false;
-            this.policyHeadBias = new double[0];
             this.actionSizeHint = actionSize;
         }
 
@@ -786,15 +765,10 @@ public class RlAiService {
             }
 
             if (hybridModel) {
-                if (policyHeadBias == null || policyHeadBias.length == 0) {
+                if (!isHybridReady()) {
                     return new double[0];
                 }
-                double[] logits = new double[effectiveActionSize];
-                int len = Math.min(effectiveActionSize, policyHeadBias.length);
-                for (int i = 0; i < len; i++) {
-                    logits[i] = policyHeadBias[i];
-                }
-                return logits;
+                return predictHybrid(state, effectiveActionSize);
             }
 
             if (!isReady()) {
@@ -815,6 +789,215 @@ public class RlAiService {
         private boolean isReady() {
             return W1 != null && B1 != null && W2 != null && B2 != null && W3 != null && B3 != null
                     && W1.length > 0 && W2.length > 0 && W3.length > 0;
+        }
+
+        private boolean isHybridReady() {
+            return conv1W != null && conv1W.length > 0
+                    && conv2W != null && conv2W.length > 0
+                    && spatialFcW != null && spatialFcW.length > 0
+                    && nonFc1W != null && nonFc1W.length > 0
+                    && nonFc2W != null && nonFc2W.length > 0
+                    && fuseW != null && fuseW.length > 0
+                    && policyW != null && policyW.length > 0;
+        }
+
+        private double[] predictHybrid(int[] state, int effectiveActionSize) {
+            final int commonSize = 4;
+            final int spatialChannels = 11;
+            final int tileCount = 64;
+            final int nonSpatialSize = 6;
+
+            int expected = commonSize + (spatialChannels * tileCount) + nonSpatialSize;
+            double[] in = adjustState(state, stateSize > 0 ? stateSize : expected);
+            if (in.length < expected) {
+                in = adjustState(state, expected);
+            }
+
+            double[] common = new double[commonSize];
+            System.arraycopy(in, 0, common, 0, commonSize);
+
+            double[][][] spatial = new double[spatialChannels][8][8];
+            int spatialStart = commonSize;
+            for (int c = 0; c < spatialChannels; c++) {
+                for (int idx = 0; idx < tileCount; idx++) {
+                    int y = idx / 8;
+                    int x = idx % 8;
+                    spatial[c][y][x] = in[spatialStart + (c * tileCount) + idx];
+                }
+            }
+
+            double[] handAndResult = new double[nonSpatialSize];
+            int hrStart = commonSize + (spatialChannels * tileCount);
+            System.arraycopy(in, hrStart, handAndResult, 0, nonSpatialSize);
+
+            double[][][] spatialAug = new double[12][8][8];
+            for (int c = 0; c < spatialChannels; c++) {
+                for (int y = 0; y < 8; y++) {
+                    System.arraycopy(spatial[c][y], 0, spatialAug[c][y], 0, 8);
+                }
+            }
+            double minDist = minEnemyDistanceChannel(spatial);
+            for (int y = 0; y < 8; y++) {
+                for (int x = 0; x < 8; x++) {
+                    spatialAug[11][y][x] = minDist;
+                }
+            }
+
+            double[][][] c1 = conv2dSame(spatialAug, conv1W, conv1B, 1);
+            reluInPlace(c1);
+            double[][][] c2 = conv2dSame(c1, conv2W, conv2B, 2);
+            reluInPlace(c2);
+
+            double[] pooled = globalAveragePool(c2);
+            double[] zSp = add(matmul(spatialFcW, pooled), spatialFcB);
+            reluInPlace(zSp);
+
+            double[] nonIn = new double[commonSize + nonSpatialSize];
+            System.arraycopy(common, 0, nonIn, 0, commonSize);
+            System.arraycopy(handAndResult, 0, nonIn, commonSize, nonSpatialSize);
+            double[] n1 = add(matmul(nonFc1W, nonIn), nonFc1B);
+            reluInPlace(n1);
+            double[] n2 = add(matmul(nonFc2W, n1), nonFc2B);
+            reluInPlace(n2);
+
+            double[] fused = new double[zSp.length + n2.length];
+            System.arraycopy(zSp, 0, fused, 0, zSp.length);
+            System.arraycopy(n2, 0, fused, zSp.length, n2.length);
+
+            double[] zF = add(matmul(fuseW, fused), fuseB);
+            reluInPlace(zF);
+
+            double[] logitsRaw = add(matmul(policyW, zF), policyB);
+            double[] logits = new double[effectiveActionSize];
+            int len = Math.min(effectiveActionSize, logitsRaw.length);
+            System.arraycopy(logitsRaw, 0, logits, 0, len);
+            return logits;
+        }
+
+        private double[] matmul(double[][] w, double[] x) {
+            if (w == null || w.length == 0) {
+                return new double[0];
+            }
+            double[] out = new double[w.length];
+            for (int i = 0; i < w.length; i++) {
+                double sum = 0.0;
+                int bound = Math.min(w[i].length, x.length);
+                for (int j = 0; j < bound; j++) {
+                    sum += w[i][j] * x[j];
+                }
+                out[i] = sum;
+            }
+            return out;
+        }
+
+        private double[] add(double[] a, double[] b) {
+            int n = a.length;
+            double[] out = new double[n];
+            for (int i = 0; i < n; i++) {
+                out[i] = a[i] + (i < b.length ? b[i] : 0.0);
+            }
+            return out;
+        }
+
+        private void reluInPlace(double[] v) {
+            for (int i = 0; i < v.length; i++) {
+                if (v[i] < 0.0) v[i] = 0.0;
+            }
+        }
+
+        private void reluInPlace(double[][][] t) {
+            for (int c = 0; c < t.length; c++) {
+                for (int y = 0; y < t[c].length; y++) {
+                    for (int x = 0; x < t[c][y].length; x++) {
+                        if (t[c][y][x] < 0.0) t[c][y][x] = 0.0;
+                    }
+                }
+            }
+        }
+
+        private double[][][] conv2dSame(double[][][] x, double[][][][] w, double[] b, int dilation) {
+            int outCh = w.length;
+            int inCh = x.length;
+            int k = w[0][0].length;
+            int h = x[0].length;
+            int wid = x[0][0].length;
+            int pad = (k / 2) * dilation;
+
+            double[][][] out = new double[outCh][h][wid];
+            for (int oc = 0; oc < outCh; oc++) {
+                for (int i = 0; i < h; i++) {
+                    for (int j = 0; j < wid; j++) {
+                        double sum = oc < b.length ? b[oc] : 0.0;
+                        for (int ic = 0; ic < inCh; ic++) {
+                            for (int ki = 0; ki < k; ki++) {
+                                for (int kj = 0; kj < k; kj++) {
+                                    int ii = i + (ki * dilation) - pad;
+                                    int jj = j + (kj * dilation) - pad;
+                                    if (ii < 0 || ii >= h || jj < 0 || jj >= wid) {
+                                        continue;
+                                    }
+                                    sum += x[ic][ii][jj] * w[oc][ic][ki][kj];
+                                }
+                            }
+                        }
+                        out[oc][i][j] = sum;
+                    }
+                }
+            }
+            return out;
+        }
+
+        private double[] globalAveragePool(double[][][] x) {
+            double[] out = new double[x.length];
+            double denom = x[0].length * x[0][0].length;
+            for (int c = 0; c < x.length; c++) {
+                double sum = 0.0;
+                for (int y = 0; y < x[c].length; y++) {
+                    for (int xx = 0; xx < x[c][y].length; xx++) {
+                        sum += x[c][y][xx];
+                    }
+                }
+                out[c] = sum / Math.max(1.0, denom);
+            }
+            return out;
+        }
+
+        private double minEnemyDistanceChannel(double[][][] spatial) {
+            List<int[]> own = new ArrayList<>();
+            List<int[]> opp = new ArrayList<>();
+            for (int y = 0; y < 8; y++) {
+                for (int x = 0; x < 8; x++) {
+                    boolean ownPresent = false;
+                    boolean oppPresent = false;
+                    for (int c = 1; c <= 5; c++) {
+                        if (Math.abs(spatial[c][y][x]) > 1e-6) {
+                            ownPresent = true;
+                            break;
+                        }
+                    }
+                    for (int c = 6; c <= 10; c++) {
+                        if (Math.abs(spatial[c][y][x]) > 1e-6) {
+                            oppPresent = true;
+                            break;
+                        }
+                    }
+                    if (ownPresent) own.add(new int[]{y, x});
+                    if (oppPresent) opp.add(new int[]{y, x});
+                }
+            }
+            if (own.isEmpty() || opp.isEmpty()) {
+                return 1.0;
+            }
+            int minDist = Integer.MAX_VALUE;
+            for (int[] a : own) {
+                for (int[] b : opp) {
+                    int d = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+                    if (d < minDist) {
+                        minDist = d;
+                    }
+                }
+            }
+            return minDist / 14.0;
         }
 
         private double[] adjustState(int[] state, int expectedSize) {
@@ -842,19 +1025,6 @@ public class RlAiService {
                     sum += vec[j] * w[i][j];
                 }
                 out[i] = sum;
-            }
-            return out;
-        }
-
-        private double[] add(double[] a, double[] b) {
-            if (a.length == 0) {
-                return new double[0];
-            }
-
-            double[] out = new double[a.length];
-            for (int i = 0; i < a.length; i++) {
-                double bias = i < b.length ? b[i] : 0.0;
-                out[i] = a[i] + bias;
             }
             return out;
         }
