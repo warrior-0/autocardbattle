@@ -62,7 +62,7 @@ class AITrainer:
         self.total_trained_episodes = 0
         self.needs_evaluation = False  # 승급전 필요 여부 플래그
 
-        self.gamma = 0.98
+        self.gamma = 0.95
         self.gae_lambda = 0.95
         self.ppo_epochs = 8
         self.minibatch_size = 128
@@ -361,7 +361,7 @@ class AITrainer:
             return self.best_network
             
         # 2. Previous Network (30%) - 최소 1000판 격차가 확보된 최신 체크포인트
-        if r < 0.3:
+        if r < 0.8:
             return self.previous_network
                 
         # 3. Historical Networks (20%) - 더 과거의 모델들 중에서 랜덤 선택
