@@ -169,7 +169,7 @@ class PPONetwork:
         clip_epsilon: float = 0.2,
         entropy_coef: float = 0.02,
         value_coef: float = 0.5,
-        target_kl: float = 0.02,
+        target_kl: float = 0.05,
     ):
         self.state_size = state_size
         self.action_size = action_size
