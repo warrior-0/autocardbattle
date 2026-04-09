@@ -327,6 +327,7 @@ class PPONetwork:
                 mask = action_masks[idx]
                 ret = returns[idx]
                 adv = advantages[idx]
+                adv = (adv - np.mean(adv)) / (np.std(adv) + 1e-8)
                 bs = len(idx)
 
                 logits, values = self._forward_internal(s)
