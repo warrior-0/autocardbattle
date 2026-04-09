@@ -48,14 +48,14 @@ class AITrainer:
         self.network = PPONetwork(
             state_size,
             action_size,
-            learning_rate=3e-4,
+            learning_rate=4e-4,
             clip_epsilon=0.2,
-            entropy_coef=0.01,
+            entropy_coef=0.02,
             value_coef=0.5,
             target_kl=0.02,
         )
-        self.base_lr = 3e-4
-        self.base_entropy_coef = 0.01
+        self.base_lr = 4e-4
+        self.base_entropy_coef = 0.02
         self.training_step = 0
 
         self.replace_rate = 0.55
@@ -64,8 +64,8 @@ class AITrainer:
 
         self.gamma = 0.98
         self.gae_lambda = 0.95
-        self.ppo_epochs = 4
-        self.minibatch_size = 64
+        self.ppo_epochs = 6
+        self.minibatch_size = 128
 
         self.previous_network = self._clone_network(self.network)
         self.best_network = self._clone_network(self.network)
@@ -436,22 +436,28 @@ class AITrainer:
             print(f"[AITrainer] Episode {ep}: Current model saved as pending.", flush=True)
 
     def evaluate_model(self, start_time, eval_episodes=1000):
-        """별도의 승급전(Evaluation)을 수행합니다. (학습 없음)"""
         self._load_best_model_if_exists()
         print(f"[AITrainer] Starting evaluation: Current vs Best for {eval_episodes} games...", flush=True)
+
         wins = 0
         draws = 0
         losses = 0
+
+        min_games_before_stop = 200   # 최소 진행 판수
+
         for i in range(1, eval_episodes + 1):
             map_data = self._next_training_map_data()
             sim = GameSimulator(map_data=map_data)
             state, _ = sim.reset()
             done = False
+
             while not done:
                 action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("player"), mode='train')
                 enemy_action, _, _, _, _ = self.select_action(state, sim.get_valid_actions_for("enemy"), mode='train', network_to_use=self.best_network)
                 state, _, _, _, done, info = sim.step_self_play(action, enemy_action)
+
             winner = info.get("winner")
+
             if winner == 1:
                 wins += 1
             elif winner == 0:
@@ -459,22 +465,37 @@ class AITrainer:
             else:
                 losses += 1
 
-            win_rate = wins / (wins + draws + losses)
+            played = wins + draws + losses
+            remaining = eval_episodes - played
+
+            win_rate = wins / played if played > 0 else 0
+
+            # progress 출력
             if i % 10 == 0:
-                print(
-                    f"[Eval] Progress: {i}/{eval_episodes}, wins: {wins}, losses: {losses}, Draws: {draws}, win_rate = {round(win_rate, 2)}, elapsed_time: {round(time.time() - start_time, 2)}",
-                    flush=True
-                )
-        
-        promoted = win_rate >= self.replace_rate
+                print(f"[Eval] Progress: {i}/{eval_episodes}, wins: {wins}, losses: {losses}, draws: {draws}, win_rate={round(win_rate,3)}, elapsed_time={round(time.time()-start_time,2)}", flush=True)
+
+            # Early stop (최소 판수 이후만)
+            if played >= min_games_before_stop:
+                max_possible_wins = wins + remaining
+
+                # 승급 불가능
+                if max_possible_wins / eval_episodes < self.replace_rate:
+                    print("[Eval] Early stop → Promotion impossible", flush=True)
+                    break
+
+                # 승급 확정
+                if wins / eval_episodes >= self.replace_rate:
+                    print("[Eval] Early stop → Promotion guaranteed", flush=True)
+                    break
+        #승급 체크
+        promoted = (wins / eval_episodes) >= self.replace_rate
+
         if promoted:
             self.best_network = self._clone_network(self.network)
-            print(f"[AITrainer] PROMOTED! New Best Model (Win Rate: {win_rate:.4f})", flush=True)
+            print(f"[AITrainer] PROMOTED! New Best Model (Win Rate: {wins/eval_episodes:.4f})", flush=True)
             self._save_best_model()
         else:
-            print(f"[AITrainer] Promotion Failed. (Win Rate: {win_rate:.4f})", flush=True)
-        
-        # 승급전 완료 후 상태 업데이트 및 저장
+            print(f"[AITrainer] Promotion Failed. (Win Rate: {wins/eval_episodes:.4f})", flush=True)
         self.needs_evaluation = False
         self.save_model(self.model_path)
         return promoted
@@ -483,7 +504,7 @@ class AITrainer:
         start_time = time.time()
         root_dir = os.path.abspath(os.path.join(os.path.dirname(self.model_path), "../../../.."))
         rel_model_path = os.path.relpath(self.model_path, root_dir)
-        update_batch_episodes = max(1, int(os.getenv("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES", "50")))
+        update_batch_episodes = max(1, int(os.getenv("AUTOCARDBATTLE_UPDATE_BATCH_EPISODES", "100")))
         total_wins = 0
         total_draws = 0
         total_losses = 0
