@@ -341,6 +341,7 @@ class PPONetwork:
                 total_kl += approx_kl
                 kl_batches += 1
 
+                # Early stop check moved to end of epoch to allow more learning
                 unclipped = ratio * adv
                 clipped_ratio = np.clip(ratio, 1.0 - self.clip_epsilon, 1.0 + self.clip_epsilon)
                 clipped = clipped_ratio * adv
@@ -424,9 +425,13 @@ class PPONetwork:
                 self.non_fc1_b -= lr * db_non_fc1
 
                 total_loss += float(loss)
-                if approx_kl > self.target_kl:
-                    early_stop = True
-                    break
+            
+            # Check average KL after each full epoch instead of per-minibatch
+            avg_kl_this_epoch = total_kl / max(1, kl_batches)
+            if avg_kl_this_epoch > self.target_kl:
+                early_stop = True
+                break
+            
             if early_stop:
                 break
 
