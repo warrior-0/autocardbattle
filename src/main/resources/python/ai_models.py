@@ -165,9 +165,9 @@ class PPONetwork:
         self,
         state_size: int,
         action_size: int,
-        learning_rate: float = 0.0003,
+        learning_rate: float = 0.0004,
         clip_epsilon: float = 0.2,
-        entropy_coef: float = 0.01,
+        entropy_coef: float = 0.02,
         value_coef: float = 0.5,
         target_kl: float = 0.02,
     ):
@@ -305,8 +305,8 @@ class PPONetwork:
         action_masks: np.ndarray,
         returns: np.ndarray,
         advantages: np.ndarray,
-        epochs: int = 4,
-        minibatch_size: int = 64,
+        epochs: int = 6,
+        minibatch_size: int = 128,
     ) -> dict:
         n = len(states)
         if n == 0:
