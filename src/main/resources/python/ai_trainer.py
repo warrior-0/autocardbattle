@@ -356,15 +356,15 @@ class AITrainer:
 
         r = np.random.rand()
         
-        # 1. Best Network (50%)
-        if r < 0.5: 
+        # 1. Best Network (30%)
+        if r < 0.3: 
             return self.best_network
             
         # 2. Previous Network (30%) - 최소 1000판 격차가 확보된 최신 체크포인트
-        if r < 0.8:
+        if r < 0.6:
             return self.previous_network
                 
-        # 3. Historical Networks (20%) - 더 과거의 모델들 중에서 랜덤 선택
+        # 3. Historical Networks (40%) - 더 과거의 모델들 중에서 랜덤 선택
         if self.other_historical_candidates:
             return self.random_choice(self.other_historical_candidates)
             
