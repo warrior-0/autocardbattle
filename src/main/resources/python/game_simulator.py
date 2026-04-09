@@ -672,25 +672,30 @@ class GameSimulator:
         self.revealed_enemy_tiles.update(self.enemy_board.keys())
         self.revealed_player_tiles.update(self.player_board.keys())
         winner, survivors, logs, remaining_hp, initial_hp_sum = self._simulate_combat(self.player_board, self.enemy_board)
+        
         if winner == 1: self.enemy_hp -= 1
         elif winner == -1: self.player_hp -= 1
         
-        # [수정] 라운드 승패 보상만 남김 (승리 +1.0, 패배 -1.0)
-        player_reward = 0.0
-        enemy_reward = 0.0
+        # [수정] 상세 보상 체계 도입 (유닛 데미지 차이, 유닛 체력 잔량 차이, 생존 유닛 수 차이)
+        # 1. 데미지 차이 (적 유닛에게 준 데미지 - 아군 유닛이 받은 데미지)
+        player_dmg_dealt = initial_hp_sum["enemy"] - remaining_hp["enemy"]
+        enemy_dmg_dealt = initial_hp_sum["player"] - remaining_hp["player"]
+        dmg_diff = (player_dmg_dealt - enemy_dmg_dealt) / 500.0 # 스케일 조정
         
-        if winner == 1:
-            player_reward = 1.0
-            enemy_reward = -1.0
-        elif winner == -1:
-            player_reward = -1.0
-            enemy_reward = 1.0
-        else:
-            # 무승부 시 소폭 페널티 (적극적인 플레이 유도)
-            player_reward = -0.1
-            enemy_reward = -0.1
+        # 2. 유닛 체력 잔량 차이 (아군 유닛 남은 HP 합산 - 적군 유닛 남은 HP 합산)
+        hp_diff = (remaining_hp["player"] - remaining_hp["enemy"]) / 500.0 # 스케일 조정
+        
+        # 3. 생존 유닛 수 차이 (아군 생존 수 - 적군 생존 수)
+        survivor_diff = (survivors["player"] - survivors["enemy"]) * 0.2 # 스케일 조정
+        
+        # 기본 승패 보상
+        win_reward = 1.0 if winner == 1 else (-1.0 if winner == -1 else -0.1)
+        
+        # 최종 보상 합산
+        player_reward = win_reward + dmg_diff + hp_diff + survivor_diff
+        enemy_reward = -player_reward # 제로섬 게임 가정
             
-        return winner, {"player": player_reward, "enemy": enemy_reward}
+        return winner, {"player": float(player_reward), "enemy": float(enemy_reward)}
 
     def _start_next_round(self) -> None:
         self.current_round += 1
