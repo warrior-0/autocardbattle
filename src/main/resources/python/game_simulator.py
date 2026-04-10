@@ -691,7 +691,7 @@ class GameSimulator:
         survivor_diff = (survivors["player"] - survivors["enemy"]) * 0.05 # 스케일 조정
         
         # 기본 승패 보상
-        win_reward = 5.0 if winner == 1 else (-5.0 if winner == -1 else -0.1)
+        win_reward = 10.0 if winner == 1 else (-10.0 if winner == -1 else -0.1)
         
         # 최종 보상 합산
         player_reward = win_reward + dmg_diff + hp_diff + survivor_diff
