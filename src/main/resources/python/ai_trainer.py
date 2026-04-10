@@ -49,7 +49,7 @@ class AITrainer:
             state_size,
             action_size,
             learning_rate=3e-4,
-            clip_epsilon=0.2,
+            clip_epsilon=0.15,
             entropy_coef=0.01,
             value_coef=0.5,
             target_kl=0.02,
@@ -64,8 +64,8 @@ class AITrainer:
 
         self.gamma = 0.98
         self.gae_lambda = 0.95
-        self.ppo_epochs = 6
-        self.minibatch_size = 128
+        self.ppo_epochs = 5
+        self.minibatch_size = 256
 
         self.previous_network = self._clone_network(self.network)
         self.best_network = self._clone_network(self.network)
@@ -356,15 +356,15 @@ class AITrainer:
 
         r = np.random.rand()
         
-        # 1. Best Network (30%)
-        if r < 0.3: 
+        # 1. Best Network (20%)
+        if r < 0.2: 
             return self.best_network
             
-        # 2. Previous Network (30%) - 최소 1000판 격차가 확보된 최신 체크포인트
-        if r < 0.6:
+        # 2. Previous Network (50%) - 최소 1000판 격차가 확보된 최신 체크포인트
+        if r < 0.7:
             return self.previous_network
                 
-        # 3. Historical Networks (40%) - 더 과거의 모델들 중에서 랜덤 선택
+        # 3. Historical Networks (30%) - 더 과거의 모델들 중에서 랜덤 선택
         if self.other_historical_candidates:
             return self.random_choice(self.other_historical_candidates)
             
