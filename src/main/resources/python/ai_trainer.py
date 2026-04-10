@@ -50,12 +50,12 @@ class AITrainer:
             action_size,
             learning_rate=1e-3,
             clip_epsilon=0.2,
-            entropy_coef=0.02,
+            entropy_coef=0.04,
             value_coef=0.5,
             target_kl=0.02,
         )
         self.base_lr = 1e-3
-        self.base_entropy_coef = 0.02
+        self.base_entropy_coef = 0.04
         self.training_step = 0
 
         self.replace_rate = 0.55
