@@ -167,7 +167,7 @@ class PPONetwork:
         action_size: int,
         learning_rate: float = 0.001,
         clip_epsilon: float = 0.2,
-        entropy_coef: float = 0.02,
+        entropy_coef: float = 0.04,
         value_coef: float = 0.5,
         target_kl: float = 0.02,
     ):
