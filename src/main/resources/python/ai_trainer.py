@@ -49,7 +49,7 @@ class AITrainer:
             state_size,
             action_size,
             learning_rate=1e-3,
-            clip_epsilon=0.15,
+            clip_epsilon=0.3,
             entropy_coef=0.05,
             value_coef=0.5,
             target_kl=0.05,
