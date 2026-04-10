@@ -681,20 +681,21 @@ class GameSimulator:
         player_dmg_dealt = initial_hp_sum["enemy"] - remaining_hp["enemy"]
         enemy_dmg_dealt = initial_hp_sum["player"] - remaining_hp["player"]
         dmg_diff = (player_dmg_dealt - enemy_dmg_dealt) / 500.0 # 스케일 조정
-        dmg_diff *= 0.2
+        dmg_diff *= 0.02
         
         # 2. 유닛 체력 잔량 차이 (아군 유닛 남은 HP 합산 - 적군 유닛 남은 HP 합산)
         hp_diff = (remaining_hp["player"] - remaining_hp["enemy"]) / 500 # 스케일 조정
-        hp_diff *= 0.2
+        hp_diff *= 0.02
 
         # 3. 생존 유닛 수 차이 (아군 생존 수 - 적군 생존 수)
-        survivor_diff = (survivors["player"] - survivors["enemy"]) * 0.05 # 스케일 조정
+        survivor_diff = (survivors["player"] - survivors["enemy"]) * 0.02 # 스케일 조정
         
         # 기본 승패 보상
-        win_reward = 10.0 if winner == 1 else (-10.0 if winner == -1 else -0.1)
+        win_reward = 3.0 if winner == 1 else (-3.0 if winner == -1 else -0.1)
         
         # 최종 보상 합산
         player_reward = win_reward + dmg_diff + hp_diff + survivor_diff
+        player_reward = np.clip(player_reward, -5, 5)
         enemy_reward = -player_reward # 제로섬 게임 가정
             
         return winner, {"player": float(player_reward), "enemy": float(enemy_reward)}
