@@ -49,13 +49,13 @@ class AITrainer:
             state_size,
             action_size,
             learning_rate=1e-3,
-            clip_epsilon=0.3,
-            entropy_coef=0.05,
+            clip_epsilon=0.2,
+            entropy_coef=0.02,
             value_coef=0.5,
-            target_kl=0.05,
+            target_kl=0.02,
         )
         self.base_lr = 1e-3
-        self.base_entropy_coef = 0.05
+        self.base_entropy_coef = 0.02
         self.training_step = 0
 
         self.replace_rate = 0.55
@@ -65,7 +65,7 @@ class AITrainer:
         self.gamma = 0.98
         self.gae_lambda = 0.95
         self.ppo_epochs = 5
-        self.minibatch_size = 256
+        self.minibatch_size = 128
 
         self.previous_network = self._clone_network(self.network)
         self.best_network = self._clone_network(self.network)
