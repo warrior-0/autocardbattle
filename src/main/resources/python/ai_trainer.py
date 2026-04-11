@@ -48,13 +48,13 @@ class AITrainer:
         self.network = PPONetwork(
             state_size,
             action_size,
-            learning_rate=1e-3,
-            clip_epsilon=0.2,
-            entropy_coef=0.04,
+            learning_rate=2e-3,
+            clip_epsilon=0.3,
+            entropy_coef=0.05,
             value_coef=0.5,
             target_kl=0.02,
         )
-        self.base_lr = 1e-3
+        self.base_lr = 2e-3
         self.base_entropy_coef = 0.04
         self.training_step = 0
 
