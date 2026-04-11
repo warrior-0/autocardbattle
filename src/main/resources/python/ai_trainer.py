@@ -55,7 +55,7 @@ class AITrainer:
             target_kl=0.02,
         )
         self.base_lr = 2e-3
-        self.base_entropy_coef = 0.04
+        self.base_entropy_coef = 0.05
         self.training_step = 0
 
         self.replace_rate = 0.55
